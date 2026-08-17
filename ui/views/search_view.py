@@ -446,7 +446,6 @@ class SearchView(QWidget):
         self.chapters_table.setColumnWidth(2, 200)
         self.chapters_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.chapters_table.customContextMenuRequested.connect(self.on_table_context_menu)
-        self.chapters_table.setColumnWidth(2, 200)
 
         right_layout.addWidget(self.chapters_table)
 

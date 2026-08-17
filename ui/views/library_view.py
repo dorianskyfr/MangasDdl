@@ -91,14 +91,14 @@ class FavoriteCard(QFrame):
                 background-color: #0369a1;
             }
         """)
-        open_btn.clicked.connect(lambda: self.open_requested.emit(self.manga))
+        open_btn.clicked.connect(lambda checked=False: self.open_requested.emit(self.manga))
         btn_layout.addWidget(open_btn)
 
         del_btn = QPushButton("🗑️")
         del_btn.setFixedSize(30, 26)
         del_btn.setObjectName("SecondaryButton")
         del_btn.setToolTip("Retirer des favoris")
-        del_btn.clicked.connect(lambda: self.remove_requested.emit(self.manga))
+        del_btn.clicked.connect(lambda checked=False: self.remove_requested.emit(self.manga))
         btn_layout.addWidget(del_btn)
 
         layout.addLayout(btn_layout)

@@ -232,7 +232,7 @@ class SettingsView(QWidget):
             ("js_domain_input", "Domaine JapScan:", "japscan_domain", "https://www.japscan.foo"),
             ("cs_domain_input", "Domaine Crunchyscan / SushiScan:", "crunchyscan_domain", "https://sushiscan.fr"),
             ("un_domain_input", "Domaine UNekoScans:", "unekoscans_domain", "https://unekoscans.fr"),
-            ("sv_domain_input", "Domaine Scan-VF:", "scan_vf_domain", "https://scan-vf.co"),
+            ("sv_domain_input", "Domaine Scan-VF:", "scan_vf_domain", "https://www.scan-vf.net"),
             ("md_domain_input", "Domaine MangaDex API:", "mangadex_domain", "https://api.mangadex.org"),
         ]
 
@@ -253,7 +253,7 @@ class SettingsView(QWidget):
 
         test_sources_btn = QPushButton("🧪 Tester la réactivité des 6 sources (Ping/LATENCE)")
         test_sources_btn.setObjectName("SecondaryButton")
-        test_sources_btn.setHeight = 36
+        test_sources_btn.setFixedHeight(36)
         test_sources_btn.clicked.connect(self.test_all_sources_ping)
         group_layout.addWidget(test_sources_btn)
 

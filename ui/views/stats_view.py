@@ -151,10 +151,6 @@ class StatsView(QWidget):
             self.log_signal.emit("SUCCESS", msg)
         self.refresh_stats()
 
-
-        # Initialisation des données
-        self.refresh_stats()
-
     def _create_kpi_card(self, title: str, value: str, subtext: str, color: str) -> QFrame:
         card = QFrame()
         card.setObjectName("Card")

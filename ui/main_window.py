@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QIcon, QPixmap, QKeySequence, QDesktopServices, QAction
 
 from config import config_manager
-from ui.theme import theme_manager, DARK_THEME_QSS
+from ui.theme import theme_manager
 from ui.views.search_view import SearchView
 from ui.views.downloads_view import DownloadsView
 from ui.views.settings_view import SettingsView
@@ -424,13 +424,15 @@ class MainWindow(QMainWindow):
             self.library_view.refresh_library()
 
         # Update navigation buttons state
-        nav_obj_names = ["nav_search_btn", "nav_dl_btn", "nav_settings_btn", "nav_stats_btn", "nav_lib_btn"]
-        for idx, obj_name in enumerate(nav_obj_names):
-            if obj_name in self.nav_buttons:
-                btn_idx = 4 if obj_name == "nav_lib_btn" else (3 if obj_name == "nav_stats_btn" else (2 if obj_name == "nav_settings_btn" else (1 if obj_name == "nav_dl_btn" else 0)))
-                self.nav_buttons[obj_name].setProperty("active", "true" if btn_idx == index else "false")
-                self.nav_buttons[obj_name].style().unpolish(self.nav_buttons[obj_name])
-                self.nav_buttons[obj_name].style().polish(self.nav_buttons[obj_name])
+        _nav_idx = {
+            "nav_search_btn": 0, "nav_dl_btn": 1, "nav_settings_btn": 2,
+            "nav_stats_btn": 3, "nav_lib_btn": 4,
+        }
+        for obj_name, btn in self.nav_buttons.items():
+            btn_idx = _nav_idx.get(obj_name, -1)
+            btn.setProperty("active", "true" if btn_idx == index else "false")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
 
     def show_toast(self, title: str, message: str, toast_type: str = "info", duration: int = 3):
         """Affiche une notification toast."""
