@@ -11,7 +11,7 @@ from typing import List, Tuple, Optional
 
 import httpx
 from PIL import Image, ImageDraw, ImageFont
-from PySide6.QtCore import QObject, QRunnable, Signal
+from PySide6.QtCore import QObject, QThread, Signal
 
 from config import config_manager
 from downloader.exporter import Exporter
