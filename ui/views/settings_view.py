@@ -109,7 +109,7 @@ class SettingsView(QWidget):
         format_layout.addStretch()
 
         self.format_combo = QComboBox()
-        self.format_combo.addItems(["CBZ", "PDF", "Images"])
+        self.format_combo.addItems(["CBZ", "PDF", "EPUB", "Images"])
         self.format_combo.setCurrentText(config_manager.get("export_format", "CBZ"))
         self.format_combo.setFixedWidth(140)
         format_layout.addWidget(self.format_combo)

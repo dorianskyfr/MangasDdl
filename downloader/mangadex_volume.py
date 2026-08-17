@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Module de publication officielle (AniList + Kitsu)
 Comportement strict & gestion intelligente des séries en cours (One Piece, Jujutsu, etc.).

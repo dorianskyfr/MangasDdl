@@ -1,4 +1,6 @@
+from __future__ import annotations
 import uuid
+from typing import Optional, List, Dict, Tuple, Any
 import httpx
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,

@@ -30,7 +30,7 @@ SITEMAP_CACHE_KEY = "unekoscans_sitemap"
 class UNekoScansScraper(BaseScraper):
     """Scraper pour uNekoscans."""
     
-    timeout = 15.0
+    timeout = 3.0
     
     def __init__(self):
         super().__init__()

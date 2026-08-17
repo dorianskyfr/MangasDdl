@@ -1,11 +1,15 @@
+from __future__ import annotations
+import sys
 import httpx
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QProgressBar
+    QScrollArea, QWidget, QProgressBar
 )
+from PySide6.QtGui import QPixmap, QKeySequence, QShortcut, QWheelEvent
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QPixmap, QKeySequence, QShortcut
+
 from models import Chapter, Page
+from scrapers.factory import ScraperFactory
 
 
 class PageFetcherWorker(QThread):
@@ -20,26 +24,32 @@ class PageFetcherWorker(QThread):
     def run(self):
         try:
             pages = self.scraper.get_chapter_pages(self.chapter.url)
-            if not pages and self.chapter:
-                from scrapers.factory import ScraperFactory
-                fallback_sources = ["Anime-Sama", "Crunchyscan", "Scan-VF", "MangaDex"]
-                for alt_src in fallback_sources:
-                    if alt_src == getattr(self.scraper, "source_name", ""):
-                        continue
-                    try:
-                        alt_scraper = ScraperFactory.get_scraper(alt_src)
-                        search_res = alt_scraper.search(self.chapter.manga_title)
-                        if search_res:
-                            alt_chaps = alt_scraper.get_chapters(search_res[0].url)
-                            matched = next((c for c in alt_chaps if str(c.number) == str(self.chapter.number)), None)
-                            if matched:
-                                alt_pages = alt_scraper.get_chapter_pages(matched.url)
-                                if alt_pages:
-                                    pages = alt_pages
-                                    break
-                    except Exception:
-                        pass
-            self.pages_ready.emit(pages or [])
+            if pages:
+                self.pages_ready.emit(pages)
+                return
+
+            fallback_sources = ["Anime-Sama", "Crunchyscan", "Scan-VF", "MangaDex"]
+            current_src = getattr(self.scraper, "source_name", "")
+            c_num = str(self.chapter.number)
+
+            for alt_src in fallback_sources:
+                if alt_src == current_src:
+                    continue
+                try:
+                    alt_scraper = ScraperFactory.get_scraper(alt_src)
+                    search_res = alt_scraper.search(self.chapter.manga_title)
+                    if search_res:
+                        alt_chaps = alt_scraper.get_chapters(search_res[0].url)
+                        matched = next((c for c in alt_chaps if str(c.number) == c_num), None)
+                        if matched:
+                            alt_pages = alt_scraper.get_chapter_pages(matched.url)
+                            if alt_pages:
+                                self.pages_ready.emit(alt_pages)
+                                return
+                except Exception:
+                    pass
+
+            self.pages_ready.emit([])
         except Exception as e:
             self.error.emit(str(e))
 
@@ -47,28 +57,34 @@ class PageFetcherWorker(QThread):
 class PageDownloaderWorker(QThread):
     page_downloaded = Signal(int, bytes)
 
-    def __init__(self, page_number: int, url: str, referer: str = None):
+    def __init__(self, idx: int, url: str, referer: str = None):
         super().__init__()
-        self.page_number = page_number
+        self.idx = idx
         self.url = url
         self.referer = referer
 
     def run(self):
-        try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer": self.referer or "https://anime-sama.to/",
-            }
-            with httpx.Client(headers=headers, timeout=12.0, follow_redirects=True) as client:
-                r = client.get(self.url)
-                if r.status_code == 200 and len(r.content) > 100:
-                    self.page_downloaded.emit(self.page_number, r.content)
-        except Exception:
-            pass
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/*,*/*;q=0.8",
+        }
+        if self.referer:
+            headers["Referer"] = self.referer
+
+        for attempt in range(3):
+            try:
+                with httpx.Client(headers=headers, timeout=15.0, follow_redirects=True) as client:
+                    r = client.get(self.url)
+                    if r.status_code == 200 and len(r.content) > 500:
+                        self.page_downloaded.emit(self.idx, r.content)
+                        return
+            except Exception:
+                pass
+        self.page_downloaded.emit(self.idx, b"")
 
 
 class ReaderDialog(QDialog):
-    """Visionneuse de scans / Lecteur de chapitres intégré (100% sécurisé)."""
+    """Visionneuse de scans / Lecteur de chapitres intégré haute performance."""
 
     def __init__(self, chapter: Chapter, scraper, parent=None):
         super().__init__(parent)
@@ -78,6 +94,7 @@ class ReaderDialog(QDialog):
         self.current_page_idx = 0
         self.page_cache: dict[int, bytes] = {}
         self.workers: list[PageDownloaderWorker] = []
+        self.zoom_factor = 1.0
 
         self.is_webtoon_mode = any(w in (chapter.manga_title or "").lower() for w in [
             "tbate", "begining", "beginning", "solo leveling", "tower of god",
@@ -86,52 +103,76 @@ class ReaderDialog(QDialog):
         ])
 
         self.setWindowTitle(f"📖 Lecteur — {chapter.manga_title} ({chapter.title})")
-        self.resize(950, 900)
+        self.resize(1000, 950)
         self.setMinimumSize(700, 600)
         self.setStyleSheet("""
             QDialog {
-                background-color: #0b0f19;
+                background-color: #06080c;
                 color: #f8fafc;
             }
         """)
 
         self.init_ui()
+        self.setup_shortcuts()
         self.load_pages()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         # Header controls
         header = QHBoxLayout()
 
         self.title_lbl = QLabel(f"📖 {self.chapter.manga_title} — {self.chapter.title}")
-        self.title_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
+        self.title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #38bdf8;")
         header.addWidget(self.title_lbl)
         header.addStretch()
 
-        self.mode_btn = QPushButton("📜 Mode Webtoon (Vertical)" if self.is_webtoon_mode else "📖 Mode Manga (Page par Page)")
-        self.mode_btn.setObjectName("SecondaryButton")
+        # Zoom controls
+        zoom_out_btn = QPushButton("🔍 -")
+        zoom_out_btn.setToolTip("Zoom arrière (Ctrl -)")
+        zoom_out_btn.setStyleSheet("background-color: #1e293b; color: white; border-radius: 6px; padding: 4px 8px; font-weight: bold;")
+        zoom_out_btn.clicked.connect(self.zoom_out)
+        header.addWidget(zoom_out_btn)
+
+        self.zoom_lbl = QLabel("100%")
+        self.zoom_lbl.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: bold; min-width: 40px;")
+        self.zoom_lbl.setAlignment(Qt.AlignCenter)
+        header.addWidget(self.zoom_lbl)
+
+        zoom_in_btn = QPushButton("🔍 +")
+        zoom_in_btn.setToolTip("Zoom avant (Ctrl +)")
+        zoom_in_btn.setStyleSheet("background-color: #1e293b; color: white; border-radius: 6px; padding: 4px 8px; font-weight: bold;")
+        zoom_in_btn.clicked.connect(self.zoom_in)
+        header.addWidget(zoom_in_btn)
+
+        self.mode_btn = QPushButton("📜 Mode Webtoon" if self.is_webtoon_mode else "📖 Mode Manga")
         self.mode_btn.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; border-radius: 6px; padding: 4px 10px;")
         self.mode_btn.clicked.connect(self.toggle_mode)
         header.addWidget(self.mode_btn)
 
         self.prev_btn = QPushButton("◀ Précédente")
-        self.prev_btn.setObjectName("SecondaryButton")
         self.prev_btn.setEnabled(False)
+        self.prev_btn.setStyleSheet("background-color: #1e293b; color: white; border-radius: 6px; padding: 4px 10px;")
         self.prev_btn.clicked.connect(self.prev_page)
         header.addWidget(self.prev_btn)
 
         self.page_counter_lbl = QLabel("Page 0 / 0")
-        self.page_counter_lbl.setStyleSheet("font-weight: bold; font-size: 13px; color: #f8fafc;")
+        self.page_counter_lbl.setStyleSheet("font-weight: bold; font-size: 13px; color: #f8fafc; min-width: 90px;")
+        self.page_counter_lbl.setAlignment(Qt.AlignCenter)
         header.addWidget(self.page_counter_lbl)
 
         self.next_btn = QPushButton("Suivante ▶")
-        self.next_btn.setObjectName("SecondaryButton")
         self.next_btn.setEnabled(False)
+        self.next_btn.setStyleSheet("background-color: #1e293b; color: white; border-radius: 6px; padding: 4px 10px;")
         self.next_btn.clicked.connect(self.next_page)
         header.addWidget(self.next_btn)
+
+        self.fs_btn = QPushButton("⛶ Plein écran")
+        self.fs_btn.setStyleSheet("background-color: #334155; color: white; border-radius: 6px; padding: 4px 8px;")
+        self.fs_btn.clicked.connect(self.toggle_fullscreen)
+        header.addWidget(self.fs_btn)
 
         close_btn = QPushButton("✕ Fermer")
         close_btn.setStyleSheet("background-color: #ef4444; color: white; font-weight: bold; border-radius: 6px; padding: 4px 10px;")
@@ -145,6 +186,7 @@ class ReaderDialog(QDialog):
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setFixedHeight(4)
         self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("QProgressBar::chunk { background-color: #38bdf8; }")
         layout.addWidget(self.progress_bar)
 
         # Image view area
@@ -160,9 +202,48 @@ class ReaderDialog(QDialog):
         self.scroll_area.setWidget(self.img_label)
         layout.addWidget(self.scroll_area)
 
-        # Shortcuts (Flèches Gauche / Droite)
+    def setup_shortcuts(self):
         QShortcut(QKeySequence(Qt.Key_Left), self, self.prev_page)
         QShortcut(QKeySequence(Qt.Key_Right), self, self.next_page)
+        QShortcut(QKeySequence(Qt.Key_Space), self, self.next_page)
+        QShortcut(QKeySequence(Qt.Key_PageUp), self, self.prev_page)
+        QShortcut(QKeySequence(Qt.Key_PageDown), self, self.next_page)
+        QShortcut(QKeySequence(Qt.Key_Home), self, lambda: self.load_page_image(0))
+        QShortcut(QKeySequence(Qt.Key_End), self, lambda: self.load_page_image(len(self.pages) - 1))
+        QShortcut(QKeySequence(Qt.Key_F), self, self.toggle_fullscreen)
+        QShortcut(QKeySequence(Qt.Key_F11), self, self.toggle_fullscreen)
+        QShortcut(QKeySequence(QKeySequence.ZoomIn), self, self.zoom_in)
+        QShortcut(QKeySequence(QKeySequence.ZoomOut), self, self.zoom_out)
+        QShortcut(QKeySequence(Qt.CTRL | Qt.Key_0), self, self.reset_zoom)
+
+    def toggle_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+            self.fs_btn.setText("⛶ Plein écran")
+        else:
+            self.showFullScreen()
+            self.fs_btn.setText("🗗 Quitter plein écran")
+
+    def zoom_in(self):
+        if self.zoom_factor < 2.5:
+            self.zoom_factor += 0.15
+            self.apply_zoom()
+
+    def zoom_out(self):
+        if self.zoom_factor > 0.4:
+            self.zoom_factor -= 0.15
+            self.apply_zoom()
+
+    def reset_zoom(self):
+        self.zoom_factor = 1.0
+        self.apply_zoom()
+
+    def apply_zoom(self):
+        self.zoom_lbl.setText(f"{int(self.zoom_factor * 100)}%")
+        if self.is_webtoon_mode:
+            self.render_webtoon_view()
+        elif self.current_page_idx in self.page_cache:
+            self.display_image_data(self.page_cache[self.current_page_idx])
 
     def load_pages(self):
         self.fetcher = PageFetcherWorker(self.scraper, self.chapter)
@@ -172,7 +253,7 @@ class ReaderDialog(QDialog):
 
     def toggle_mode(self):
         self.is_webtoon_mode = not self.is_webtoon_mode
-        self.mode_btn.setText("📜 Mode Webtoon (Vertical)" if self.is_webtoon_mode else "📖 Mode Manga (Page par Page)")
+        self.mode_btn.setText("📜 Mode Webtoon" if self.is_webtoon_mode else "📖 Mode Manga")
         if self.pages:
             if self.is_webtoon_mode:
                 self.render_webtoon_view()
@@ -181,14 +262,13 @@ class ReaderDialog(QDialog):
                 self.load_page_image(self.current_page_idx)
 
     def render_webtoon_view(self):
-        """Affiche toutes les pages bout à bout verticalement sans espace (Mode Webtoon)."""
         container = QWidget()
         v_layout = QVBoxLayout(container)
         v_layout.setContentsMargins(0, 0, 0, 0)
         v_layout.setSpacing(0)
         v_layout.setAlignment(Qt.AlignCenter)
 
-        target_w = max(600, self.scroll_area.width() - 40)
+        target_w = int(max(500, self.scroll_area.width() - 40) * self.zoom_factor)
 
         for idx in range(len(self.pages)):
             lbl = QLabel(f"Chargement page {idx+1}...")
@@ -230,7 +310,6 @@ class ReaderDialog(QDialog):
         else:
             self.load_page_image(0)
 
-        # Preload next page
         if len(pages) > 1 and not self.is_webtoon_mode:
             self.preload_page(1)
 
@@ -258,8 +337,7 @@ class ReaderDialog(QDialog):
         self.page_cache[idx] = data
         if idx == self.current_page_idx:
             self.display_image_data(data)
-        
-        # Preload adjacent pages
+
         if idx + 1 < len(self.pages) and (idx + 1) not in self.page_cache:
             self.preload_page(idx + 1)
 
@@ -277,11 +355,12 @@ class ReaderDialog(QDialog):
     def display_image_data(self, data: bytes):
         pix = QPixmap()
         if pix.loadFromData(data) and not pix.isNull():
-            target_w = self.scroll_area.width() - 40
-            scaled_pix = pix.scaledToWidth(max(600, target_w), Qt.SmoothTransformation)
+            base_w = self.scroll_area.width() - 40
+            target_w = int(max(500, base_w) * self.zoom_factor)
+            scaled_pix = pix.scaledToWidth(target_w, Qt.SmoothTransformation)
             self.img_label.setPixmap(scaled_pix)
         else:
-            self.img_label.setText("❌ Image corrompue")
+            self.img_label.setText("❌ Image corrompue ou introuvable")
 
     def update_page_counter(self):
         total = len(self.pages)
@@ -298,8 +377,12 @@ class ReaderDialog(QDialog):
         if self.current_page_idx < len(self.pages) - 1:
             self.load_page_image(self.current_page_idx + 1)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self.is_webtoon_mode and self.current_page_idx in self.page_cache:
+            self.display_image_data(self.page_cache[self.current_page_idx])
+
     def closeEvent(self, event):
-        """Nettoyage sécurisé des threads pour éviter tout crash C++ QObject."""
         if hasattr(self, "fetcher") and self.fetcher.isRunning():
             try:
                 self.fetcher.disconnect()
