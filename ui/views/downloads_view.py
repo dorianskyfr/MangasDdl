@@ -76,7 +76,8 @@ class DownloadsView(QWidget):
         hdr.setSectionResizeMode(3, QHeaderView.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(6, QHeaderView.Fixed)
+        self.table.setColumnWidth(6, 185)
         self.table.setRowHeight(0, 40)
         layout.addWidget(self.table)
 
@@ -114,17 +115,18 @@ class DownloadsView(QWidget):
             action_w = QWidget()
             action_l = QHBoxLayout(action_w)
             action_l.setContentsMargins(4, 2, 4, 2)
-            action_l.setSpacing(4)
+            action_l.setSpacing(6)
+            action_l.setAlignment(Qt.AlignCenter)
 
             cancel_btn = QPushButton("✕ Annuler")
             cancel_btn.setObjectName("SecondaryButton")
-            cancel_btn.setFixedWidth(90)
+            cancel_btn.setStyleSheet("padding: 3px 8px; font-size: 11px; min-width: 70px;")
             cancel_btn.clicked.connect(lambda _, jid=job.job_id: self.cancel_job(jid))
             action_l.addWidget(cancel_btn)
 
             open_btn = QPushButton("📂 Ouvrir")
             open_btn.setEnabled(False)
-            open_btn.setFixedWidth(90)
+            open_btn.setStyleSheet("padding: 3px 8px; font-size: 11px; min-width: 70px;")
             open_btn.clicked.connect(lambda _, jid=job.job_id: self.open_job_folder(jid))
             action_l.addWidget(open_btn)
 

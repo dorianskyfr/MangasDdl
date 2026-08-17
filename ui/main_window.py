@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         menubar.clear()
 
         # ── Menu Fichier ──
-        file_menu = menubar.addMenu("📁 Fichier")
+        file_menu = menubar.addMenu("&Fichier")
 
         act_search = QAction("🔍 Recherche", self)
         act_search.setShortcut(QKeySequence("Ctrl+F"))
@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(act_quit)
 
         # ── Menu Affichage ──
-        view_menu = menubar.addMenu("👁️ Affichage")
+        view_menu = menubar.addMenu("&Affichage")
 
         act_theme = QAction("🌓 Basculer Thème Sombre / Clair", self)
         act_theme.setShortcut(QKeySequence("Ctrl+T"))
@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(act_logs)
 
         # ── Menu Sources ──
-        sources_menu = menubar.addMenu("🌐 Sources")
+        sources_menu = menubar.addMenu("&Sources")
         sources_list = [
             ("Anime-Sama", "https://anime-sama.to"),
             ("Crunchyscan", "https://sushiscan.fr"),
@@ -130,7 +130,7 @@ class MainWindow(QMainWindow):
             sources_menu.addAction(act_src)
 
         # ── Menu Aide ──
-        help_menu = menubar.addMenu("❓ Aide")
+        help_menu = menubar.addMenu("&Aide")
 
         act_shortcuts = QAction("⌨️ Raccourcis clavier", self)
         act_shortcuts.triggered.connect(self.show_shortcuts_dialog)

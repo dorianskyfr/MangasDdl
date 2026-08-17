@@ -36,11 +36,19 @@ class WorkerSignals(QObject):
     log_message = Signal(str, str)             # level, message
 
 
-class DownloadWorker(QRunnable):
+class DownloadWorker(QThread):
+    job_started = Signal(str)
+    job_progress = Signal(str, int, int, str)
+    job_completed = Signal(str, str)
+    job_failed = Signal(str, str)
+    log_message = Signal(str, str)
+
     def __init__(self, job: DownloadJob):
         super().__init__()
         self.job = job
-        self.signals = WorkerSignals()
+        self.signals = self  # Compatibilité avec worker.signals.*
+        self._is_cancelled = False
+
     def cancel(self):
         self._is_cancelled = True
         _dbg(f"Annulation demandée pour le job {self.job.job_id}")
