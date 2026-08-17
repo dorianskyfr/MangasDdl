@@ -504,8 +504,32 @@ QToolTip {{
 }}
 
 /* ---------------------------------------------------------------
-   Menu
+   Barre de Menu & Menus Déroulants
    --------------------------------------------------------------- */
+QMenuBar {{
+    background-color: {DARK_BG_TERTIARY};
+    color: {DARK_TEXT_PRIMARY};
+    border-bottom: 1px solid {DARK_BORDER};
+    padding: 2px 6px;
+    font-size: 13px;
+}}
+
+QMenuBar::item {{
+    background: transparent;
+    padding: 5px 10px;
+    border-radius: 6px;
+    color: {DARK_TEXT_PRIMARY};
+}}
+
+QMenuBar::item:selected {{
+    background-color: {DARK_BG_HOVER};
+    color: {DARK_ACCENT};
+}}
+
+QMenuBar::item:pressed {{
+    background-color: {DARK_BG_INPUT};
+}}
+
 QMenu {{
     background-color: {DARK_BG_CARD};
     color: {DARK_TEXT_PRIMARY};

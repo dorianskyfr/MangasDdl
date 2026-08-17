@@ -379,9 +379,9 @@ class SearchView(QWidget):
         self.btn_filter_main.setChecked(True)
         self.current_chapter_filter = "main"
 
-        self.btn_filter_main.clicked.connect(lambda: self.set_chapter_filter("main"))
-        self.btn_filter_bonus.clicked.connect(lambda: self.set_chapter_filter("bonus"))
-        self.btn_filter_all.clicked.connect(lambda: self.set_chapter_filter("all"))
+        self.btn_filter_main.clicked.connect(lambda checked=False: self.set_chapter_filter("main"))
+        self.btn_filter_bonus.clicked.connect(lambda checked=False: self.set_chapter_filter("bonus"))
+        self.btn_filter_all.clicked.connect(lambda checked=False: self.set_chapter_filter("all"))
 
         filter_bar_layout.addWidget(self.btn_filter_main)
         filter_bar_layout.addWidget(self.btn_filter_bonus)
@@ -435,7 +435,7 @@ class SearchView(QWidget):
 
         right_layout.addLayout(chap_controls_row2)
 
-        # Tableau des chapitres / tomes
+        # Tableau des chapitres / tomes avec menu contextuel
         self.chapters_table = QTableWidget(0, 3)
         self.chapters_table.setHorizontalHeaderLabels(["", "CHAPITRE / TOME", "ACTION"])
         self.chapters_table.verticalHeader().setVisible(False)
@@ -443,6 +443,9 @@ class SearchView(QWidget):
         self.chapters_table.setColumnWidth(0, 50)
         self.chapters_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.chapters_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
+        self.chapters_table.setColumnWidth(2, 200)
+        self.chapters_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.chapters_table.customContextMenuRequested.connect(self.on_table_context_menu)
         self.chapters_table.setColumnWidth(2, 200)
 
         right_layout.addWidget(self.chapters_table)
@@ -1109,3 +1112,53 @@ class SearchView(QWidget):
                 self, "Téléchargement lancé",
                 f"{len(final_jobs)} chapitre(s) ajouté(s) à la file de téléchargement."
             )
+
+    def on_table_context_menu(self, pos):
+        """Menu contextuel clic-droit sur les chapitres/tomes."""
+        row = self.chapters_table.rowAt(pos.y())
+        if row < 0 or row >= self.chapters_table.rowCount():
+            return
+
+        title_item = self.chapters_table.item(row, 1)
+        if not title_item:
+            return
+
+        obj = title_item.data(Qt.UserRole)
+        from PySide6.QtWidgets import QMenu
+        from PySide6.QtGui import QAction, QGuiApplication
+
+        menu = QMenu(self)
+        if isinstance(obj, Chapter):
+            act_read = menu.addAction("👁️ Lire ce chapitre")
+            act_dl = menu.addAction("⬇️ Télécharger ce chapitre")
+            menu.addSeparator()
+            act_copy = menu.addAction("📋 Copier le nom")
+            menu.addSeparator()
+            act_sel_all = menu.addAction("✅ Tout sélectionner")
+            act_desel_all = menu.addAction("❌ Tout désélectionner")
+
+            action = menu.exec(self.chapters_table.viewport().mapToGlobal(pos))
+            if action == act_read:
+                self.open_reader_dialog(obj)
+            elif action == act_dl:
+                self.download_single_chapter(obj)
+            elif action == act_copy:
+                QGuiApplication.clipboard().setText(title_item.text())
+            elif action == act_sel_all:
+                self.toggle_select_all(Qt.Checked)
+            elif action == act_desel_all:
+                self.toggle_select_all(Qt.Unchecked)
+        elif isinstance(obj, DownloadJob):
+            act_dl_tome = menu.addAction(f"⬇️ Télécharger {title_item.text()}")
+            menu.addSeparator()
+            act_sel_all = menu.addAction("✅ Tout sélectionner")
+            act_desel_all = menu.addAction("❌ Tout désélectionner")
+
+            action = menu.exec(self.chapters_table.viewport().mapToGlobal(pos))
+            if action == act_dl_tome:
+                self.download_requested.emit([obj])
+            elif action == act_sel_all:
+                self.toggle_select_all(Qt.Checked)
+            elif action == act_desel_all:
+                self.toggle_select_all(Qt.Unchecked)
+
