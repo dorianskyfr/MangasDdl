@@ -1,0 +1,16 @@
+{
+    "download_dir": "C:/Users/gcdor/Documents/Mangas scraper",
+    "max_concurrent_threads": 4,
+    "export_format": "CBZ",
+    "chapters_per_volume": 5,
+    "group_by_volume": false,
+    "auto_open_folder": false,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "theme": "dark",
+    "anime_sama_domain": "https://anime-sama.to",
+    "crunchyscan_domain": "https://sushiscan.fr",
+    "japscan_domain": "https://www.japscan.foo",
+    "unekoscans_domain": "https://unekoscans.fr",
+    "scan_vf_domain": "https://www.scan-vf.net",
+    "mangadex_domain": "https://api.mangadex.org"
+}
