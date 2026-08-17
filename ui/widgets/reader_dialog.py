@@ -382,6 +382,17 @@ class ReaderDialog(QDialog):
         if not self.is_webtoon_mode and self.current_page_idx in self.page_cache:
             self.display_image_data(self.page_cache[self.current_page_idx])
 
+    def wheelEvent(self, event: QWheelEvent):
+        if event.modifiers() & Qt.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.zoom_in()
+            elif delta < 0:
+                self.zoom_out()
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
     def closeEvent(self, event):
         if hasattr(self, "fetcher") and self.fetcher.isRunning():
             try:
@@ -403,3 +414,4 @@ class ReaderDialog(QDialog):
                 except Exception:
                     pass
         event.accept()
+

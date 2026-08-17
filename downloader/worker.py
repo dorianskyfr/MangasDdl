@@ -48,6 +48,15 @@ class DownloadWorker(QThread):
         self.job = job
         self.signals = self  # Compatibilité avec worker.signals.*
         self._is_cancelled = False
+        self._is_paused = False
+
+    def pause(self):
+        self._is_paused = True
+        _dbg(f"Mise en pause demandée pour le job {self.job.job_id}")
+
+    def resume(self):
+        self._is_paused = False
+        _dbg(f"Reprise demandée pour le job {self.job.job_id}")
 
     def cancel(self):
         self._is_cancelled = True
@@ -256,6 +265,9 @@ class DownloadWorker(QThread):
                     return content
 
             def download_single_item(item: tuple[str, Page]) -> tuple[bool, int]:
+                while self._is_paused and not self._is_cancelled:
+                    time.sleep(0.3)
+
                 if self._is_cancelled:
                     return False, 0
 
@@ -276,6 +288,9 @@ class DownloadWorker(QThread):
                 }
 
                 for attempt in range(4):
+                    while self._is_paused and not self._is_cancelled:
+                        time.sleep(0.3)
+
                     if self._is_cancelled:
                         return False, 0
                     try:

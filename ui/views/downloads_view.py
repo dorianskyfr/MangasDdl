@@ -58,6 +58,10 @@ class DownloadsView(QWidget):
 
         layout.addWidget(header_card)
 
+        self.stats_bar = QLabel("")
+        self.stats_bar.setStyleSheet("color: #94a3b8; font-size: 12px; padding: 0 4px;")
+        layout.addWidget(self.stats_bar)
+
         # Tableau
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
@@ -77,7 +81,7 @@ class DownloadsView(QWidget):
         hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(6, QHeaderView.Fixed)
-        self.table.setColumnWidth(6, 185)
+        self.table.setColumnWidth(6, 270)
         self.table.setRowHeight(0, 40)
         layout.addWidget(self.table)
 
@@ -123,6 +127,11 @@ class DownloadsView(QWidget):
             cancel_btn.setStyleSheet("padding: 3px 8px; font-size: 11px; min-width: 70px;")
             cancel_btn.clicked.connect(lambda _, jid=job.job_id: self.cancel_job(jid))
             action_l.addWidget(cancel_btn)
+
+            pause_btn = QPushButton("⏸ Pause")
+            pause_btn.setStyleSheet("padding: 3px 8px; font-size: 11px; min-width: 60px;")
+            pause_btn.clicked.connect(lambda _, jid=job.job_id: self.toggle_pause_job(jid))
+            action_l.addWidget(pause_btn)
 
             open_btn = QPushButton("📂 Ouvrir")
             open_btn.setEnabled(False)
@@ -192,9 +201,10 @@ class DownloadsView(QWidget):
         action_w = self.table.cellWidget(row, 6)
         if action_w:
             btns = action_w.findChildren(QPushButton)
-            if len(btns) >= 2:
+            if len(btns) >= 3:
                 btns[0].setEnabled(False)
-                btns[1].setEnabled(True)
+                btns[1].setEnabled(False)
+                btns[2].setEnabled(True)
         self._update_title()
 
     def on_job_failed(self, job_id: str, error: str):
@@ -215,6 +225,8 @@ class DownloadsView(QWidget):
                     btns[0].setText("🔄 Relancer")
                     btns[0].setEnabled(True)
                     btns[0].clicked.connect(lambda _, jid=job_id: self.retry_job(jid))
+                    if len(btns) >= 2:
+                        btns[1].setEnabled(False)
         self._update_title()
 
     def retry_job(self, job_id: str):
@@ -235,6 +247,9 @@ class DownloadsView(QWidget):
                     btns[0].setText("✕ Annuler")
                     btns[0].setEnabled(True)
                     btns[0].clicked.connect(lambda _, jid=job_id: self.cancel_job(jid))
+                    if len(btns) >= 2:
+                        btns[1].setEnabled(True)
+                        btns[1].setText("⏸ Pause")
 
         task = DownloadTask(job)
         task.signals.job_started.connect(self.on_job_started)
@@ -249,6 +264,33 @@ class DownloadsView(QWidget):
     # ─────────────────────────────────────────────────────
     # Actions
     # ─────────────────────────────────────────────────────
+    def toggle_pause_job(self, job_id: str):
+        task = self.download_tasks.get(job_id)
+        if not task:
+            return
+        row = self._get_row(job_id)
+        if row < 0:
+            return
+        action_w = self.table.cellWidget(row, 6)
+        if not action_w:
+            return
+        btns = action_w.findChildren(QPushButton)
+        # btns[0] = Cancel, btns[1] = Pause, btns[2] = Open
+        if len(btns) < 2:
+            return
+        pause_btn = btns[1]
+        if pause_btn.text().startswith("⏸"):
+            # Pause the download
+            if hasattr(task, '_is_paused'):
+                task._is_paused = True
+            pause_btn.setText("▶ Reprendre")
+            self._set_status(row, "⏸ En pause", "#fbbf24")
+        else:
+            # Resume
+            if hasattr(task, '_is_paused'):
+                task._is_paused = False
+            pause_btn.setText("⏸ Pause")
+            self._set_status(row, "⬇ Téléchargement…", "#38bdf8")
     def cancel_job(self, job_id: str):
         task = self.download_tasks.get(job_id)
         if task and task.isRunning():
@@ -312,7 +354,20 @@ class DownloadsView(QWidget):
 
     def _update_title(self):
         active = sum(1 for t in self.download_tasks.values() if t.isRunning())
+        completed = sum(1 for jid in self.jobs if self.table.item(self._get_row(jid), 5) and '✅' in (self.table.item(self._get_row(jid), 5).text() or ''))
+        failed = sum(1 for jid in self.jobs if self.table.item(self._get_row(jid), 5) and '❌' in (self.table.item(self._get_row(jid), 5).text() or ''))
+        total = len(self.jobs)
         self.title_label.setText(
             f"Gestionnaire de Téléchargements"
             + (f"  ({active} en cours)" if active else "")
         )
+        parts = []
+        if total > 0:
+            parts.append(f"📊 {total} total")
+        if active > 0:
+            parts.append(f"⬇️ {active} en cours")
+        if completed > 0:
+            parts.append(f"✅ {completed} terminé(s)")
+        if failed > 0:
+            parts.append(f"❌ {failed} échoué(s)")
+        self.stats_bar.setText("  ·  ".join(parts) if parts else "")

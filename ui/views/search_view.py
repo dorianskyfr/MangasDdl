@@ -6,15 +6,17 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
     QComboBox, QListWidget, QListWidgetItem, QLabel, QSplitter,
     QTableWidget, QTableWidgetItem, QCheckBox, QHeaderView, QFrame,
-    QProgressBar, QMessageBox, QScrollArea, QSizePolicy
+    QProgressBar, QMessageBox, QScrollArea, QSizePolicy, QCompleter
 )
-from PySide6.QtCore import Qt, QThread, Signal, QSize
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QStringListModel
 from PySide6.QtGui import QPixmap, QImage, QFont, QColor
 
 from models import Manga, Chapter, DownloadJob
 from scrapers.factory import ScraperFactory
 from config import config_manager
 from downloader.mangadex_volume import MultiSourceVolumeProvider, MangaDexVolumeProvider
+from search_history import search_history
+from reading_history import reading_history
 
 
 KNOWN_MAIN_CHAPTERS = {
@@ -224,8 +226,17 @@ class SearchView(QWidget):
 
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔎 Rechercher un manga (ex: One Piece, Naruto, Nagatoro, Solo Leveling)...")
+        self.search_input.setPlaceholderText("🔎 Rechercher un manga (ex: One Piece, Naruto, Solo Leveling)...")
         self.search_input.returnPressed.connect(self.start_search)
+        
+        # Search history completer
+        self._completer_model = QStringListModel(search_history.get_suggestions())
+        self._completer = QCompleter(self._completer_model, self)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._completer.setFilterMode(Qt.MatchContains)
+        self._completer.setMaxVisibleItems(8)
+        self.search_input.setCompleter(self._completer)
+        self.search_input.textChanged.connect(self._update_search_completer)
         search_bar_layout.addWidget(self.search_input)
 
         self.search_btn = QPushButton("Rechercher")
@@ -475,11 +486,17 @@ class SearchView(QWidget):
                     all_results.extend(res)
         return all_results
 
+    def _update_search_completer(self, text):
+        suggestions = search_history.get_suggestions(text)
+        self._completer_model.setStringList(suggestions)
+
     def start_search(self):
         query = self.search_input.text().strip()
         source = self.source_combo.currentText()
         if not query:
             return
+            
+        search_history.add(query)
 
         self.loading_bar.show()
         self.results_list.clear()
@@ -866,6 +883,8 @@ class SearchView(QWidget):
         self.chapters_table.setHorizontalHeaderLabels(["", "CHAPITRE", "ACTION"])
         self.chapters_table.setRowCount(len(displayed_chapters))
 
+        manga_title = self.current_manga.title if self.current_manga else ""
+
         for row, chap in enumerate(displayed_chapters):
             self.chapters_table.setRowHeight(row, 38)
 
@@ -878,8 +897,18 @@ class SearchView(QWidget):
             cb_layout.setContentsMargins(0, 0, 0, 0)
             self.chapters_table.setCellWidget(row, 0, cb_item)
 
-            title_item = QTableWidgetItem(chap.title)
+            # Indicateur Lu / Non-lu
+            is_read = reading_history.is_read(manga_title, chap.number)
+            if is_read:
+                title_text = f"✓ {chap.title}"
+            else:
+                title_text = chap.title
+
+            title_item = QTableWidgetItem(title_text)
             title_item.setData(Qt.UserRole, chap)
+            if is_read:
+                title_item.setForeground(QColor("#4ade80"))
+                title_item.setToolTip(f"Chapitre déjà lu")
             self.chapters_table.setItem(row, 1, title_item)
 
             dl_btn = QPushButton("⬇ Télécharger")
@@ -887,20 +916,34 @@ class SearchView(QWidget):
             dl_btn.setFixedSize(110, 28)
             dl_btn.clicked.connect(lambda _, c=chap: self.download_single_chapter(c))
 
-            read_btn = QPushButton("👁️ Lire")
+            read_btn = QPushButton("✓ Lu" if is_read else "👁️ Lire")
             read_btn.setFixedSize(65, 28)
-            read_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #0284c7;
-                    color: #ffffff;
-                    font-weight: bold;
-                    font-size: 11px;
-                    border-radius: 6px;
-                }
-                QPushButton:hover {
-                    background-color: #0369a1;
-                }
-            """)
+            if is_read:
+                read_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #166534;
+                        color: #4ade80;
+                        font-weight: bold;
+                        font-size: 11px;
+                        border-radius: 6px;
+                    }
+                    QPushButton:hover {
+                        background-color: #15803d;
+                    }
+                """)
+            else:
+                read_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #0284c7;
+                        color: #ffffff;
+                        font-weight: bold;
+                        font-size: 11px;
+                        border-radius: 6px;
+                    }
+                    QPushButton:hover {
+                        background-color: #0369a1;
+                    }
+                """)
             read_btn.clicked.connect(lambda _, c=chap: self.open_reader_dialog(c))
 
             dl_w = QWidget()
@@ -912,6 +955,7 @@ class SearchView(QWidget):
             dl_l.addWidget(dl_btn)
             self.chapters_table.setCellWidget(row, 2, dl_w)
 
+
         self.select_all_cb.setChecked(False)
 
     def open_reader_dialog(self, chapter: Chapter):
@@ -921,6 +965,16 @@ class SearchView(QWidget):
             scraper = ScraperFactory.get_scraper(chapter.source)
             dialog = ReaderDialog(chapter, scraper, self)
             dialog.exec()
+            # Marquer le chapitre comme lu après fermeture du lecteur
+            reading_history.mark_as_read(
+                chapter.manga_title, chapter.number, chapter.source
+            )
+            # Rafraîchir le tableau pour mettre à jour l'indicateur
+            if self.group_tomes_cb.isChecked() and self.current_vmap:
+                self.render_volumes_table()
+            else:
+                self.render_chapters_table()
+            self.log_signal.emit("INFO", f"Chapitre {chapter.number} marqué comme lu.")
         except Exception as e:
             QMessageBox.warning(self, "Erreur du lecteur", f"Impossible d'ouvrir le chapitre : {e}")
 

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from config import config_manager
 from scrapers.factory import ScraperFactory
+from reading_history import reading_history
 
 
 class StatsView(QWidget):
@@ -56,11 +57,15 @@ class StatsView(QWidget):
         self.card_storage = self._create_kpi_card("💾 Espace Occupé", "0 Mo", "Dossier MangaDownloader", "#a855f7")
         self.card_sources = self._create_kpi_card("🌐 Sources Actives", "6 / 6", "100% Opérationnelles", "#4ade80")
         self.card_speed = self._create_kpi_card("⚡ Threads Parallèles", f"{config_manager.get('max_concurrent_threads', 4)} Threads", "Vitesse optimisée", "#fbbf24")
+        self.card_read_chapters = self._create_kpi_card("👁️ Chapitres Lus", "0", "Via le lecteur intégré", "#ec4899")
+        self.card_read_mangas = self._create_kpi_card("📚 Mangas Lus", "0", "Séries différentes", "#f97316")
 
         self.kpi_layout.addWidget(self.card_downloads, 0, 0)
         self.kpi_layout.addWidget(self.card_storage, 0, 1)
         self.kpi_layout.addWidget(self.card_sources, 0, 2)
         self.kpi_layout.addWidget(self.card_speed, 0, 3)
+        self.kpi_layout.addWidget(self.card_read_chapters, 1, 0)
+        self.kpi_layout.addWidget(self.card_read_mangas, 1, 1)
 
         main_layout.addLayout(self.kpi_layout)
 
@@ -255,8 +260,12 @@ class StatsView(QWidget):
         self.card_storage.findChild(QLabel, "v_lbl").setText(size_str)
         self.card_speed.findChild(QLabel, "v_lbl").setText(f"{config_manager.get('max_concurrent_threads', 4)} Threads")
 
+        read_stats = reading_history.get_all_stats()
+        self.card_read_chapters.findChild(QLabel, "v_lbl").setText(str(read_stats.get("total_chapters_read", 0)))
+        self.card_read_mangas.findChild(QLabel, "v_lbl").setText(str(read_stats.get("total_mangas_read", 0)))
+
         self.dir_label.setText(f"Chemin : {download_dir.absolute()}")
         self.format_label.setText(f"Format d'export actuel : {config_manager.get('export_format', 'CBZ')}")
 
         if hasattr(self, "log_signal"):
-            self.log_signal.emit("INFO", f"Statistiques actualisées : {total_files} fichiers ({size_str}).")
+            self.log_signal.emit("INFO", f"Statistiques actualisées : {total_files} fichiers ({size_str}), {read_stats.get('total_chapters_read', 0)} chapitres lus.")

@@ -43,3 +43,6 @@ desktop.ini
 
 # User local configs & downloads
 # config.json
+favorites.json
+search_history.json
+reading_history.json
