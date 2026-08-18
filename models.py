@@ -17,6 +17,7 @@ class Manga:
     cover_url: Optional[str] = None
     synopsis: Optional[str] = "Aucun synopsis disponible."
     genres: List[str] = field(default_factory=list)
+    alt_titles: List[str] = field(default_factory=list)
 
 @dataclass
 class Chapter:

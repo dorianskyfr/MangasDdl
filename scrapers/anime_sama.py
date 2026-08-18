@@ -303,11 +303,57 @@ class AnimeSamaScraper(BaseScraper):
         elif "#year1" in manga_url:
             display_title = "Classroom of the Elite (1ère Année / Year 1)"
 
+        synopsis = "Aucun synopsis disponible."
+        genres = []
+        alt_titles = []
+        cover_url = f"{CDN_THUMB}/{clean_slug}.webp"
+
+        catalogue_url = f"{self.base_url}/catalogue/{clean_slug}/"
+        try:
+            with self._get_client(referer=self.base_url) as c:
+                r = c.get(catalogue_url)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "lxml")
+                h1 = soup.select_one("h1")
+                if h1:
+                    h1_text = h1.get_text(strip=True)
+                    if h1_text and "#" not in manga_url:
+                        display_title = h1_text
+
+                h2_alt = soup.select_one("h2.clamp-alters")
+                if h2_alt:
+                    h2_text = h2_alt.get_text(strip=True)
+                    for sub in h2_text.split(","):
+                        clean_sub = sub.strip()
+                        if clean_sub and clean_sub not in alt_titles:
+                            alt_titles.append(clean_sub)
+                else:
+                    for h2 in soup.select("h2"):
+                        h2_text = h2.get_text(strip=True)
+                        if "," in h2_text and not any(k in h2_text.lower() for k in ["aperçu", "synopsis", "genres", "anime", "manga", "oeuvres"]):
+                            for sub in h2_text.split(","):
+                                clean_sub = sub.strip()
+                                if clean_sub and clean_sub not in alt_titles:
+                                    alt_titles.append(clean_sub)
+
+                # Synopsis
+                p_tags = soup.select("p")
+                for p in p_tags:
+                    p_text = p.get_text(strip=True)
+                    if len(p_text) > 40 and not any(skip in p_text.lower() for skip in ["cliquer sur", "nocturne", "anime-sama est", "n'héberge pas", "publicités", "copyright"]):
+                        synopsis = p_text
+                        break
+        except Exception as e:
+            print(f"[AnimeSama] Error fetching manga details for {clean_slug}: {e}")
+
         manga = Manga(
             title=display_title,
             url=manga_url,
             source=self.source_name,
-            cover_url=f"{CDN_THUMB}/{clean_slug}.webp"
+            cover_url=cover_url,
+            synopsis=synopsis,
+            genres=genres,
+            alt_titles=alt_titles
         )
         return manga
 

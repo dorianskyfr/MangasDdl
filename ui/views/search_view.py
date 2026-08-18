@@ -613,24 +613,32 @@ class SearchView(QWidget):
         details = scraper.get_manga_details(manga_url)
         chapters = scraper.get_chapters(manga_url)
         title_for_vmap = details.title or (self.current_manga.title if self.current_manga else manga_url.rstrip("/").split("/")[-1].replace("-", " "))
+        alt_titles = getattr(details, "alt_titles", []) or getattr(self.current_manga, "alt_titles", [])
         
-        # Récupérer une image de couverture officielle si la source n'en a pas fourni
-        if not details.cover_url and (not self.current_manga or not self.current_manga.cover_url):
-            from downloader.volume_cover_provider import VolumeCoverProvider
-            fallback_cover = VolumeCoverProvider.get_main_cover_url(title_for_vmap)
-            if fallback_cover:
-                details.cover_url = fallback_cover
-
         max_main = get_official_main_limit(title_for_vmap)
         main_chapters = [c for c in chapters if not is_bonus_chapter(c, max_main)]
         c_nums = [c.number for c in main_chapters] if main_chapters else [c.number for c in chapters]
         try:
-            src_name, vmap = MultiSourceVolumeProvider.get_official_volumes_for_chapters(title_for_vmap, c_nums)
+            src_name, vmap = MultiSourceVolumeProvider.get_official_volumes_for_chapters(title_for_vmap, c_nums, alt_titles=alt_titles)
             manga_meta = MultiSourceVolumeProvider.get_manga_meta(title_for_vmap)
         except Exception as e:
             print(f"[SearchView] Error fetching volume map: {e}")
             src_name, vmap = "Indisponible", {}
             manga_meta = {}
+
+        # Compléter le synopsis et les genres depuis les métadonnées officielles si absents de la source
+        if (not details.synopsis or details.synopsis == "Aucun synopsis disponible.") and manga_meta.get("synopsis"):
+            details.synopsis = manga_meta["synopsis"]
+        if (not details.genres or len(details.genres) == 0) and manga_meta.get("genres"):
+            details.genres = manga_meta["genres"]
+        if not details.cover_url and manga_meta.get("cover_url"):
+            details.cover_url = manga_meta["cover_url"]
+        elif not details.cover_url and (not self.current_manga or not self.current_manga.cover_url):
+            from downloader.volume_cover_provider import VolumeCoverProvider
+            fallback_cover = VolumeCoverProvider.get_main_cover_url(title_for_vmap)
+            if fallback_cover:
+                details.cover_url = fallback_cover
+
         return details, chapters, src_name, vmap, manga_meta
 
     def display_manga_details(self, data):
@@ -1038,6 +1046,10 @@ class SearchView(QWidget):
         vol_jobs = self.current_volume_jobs
         self.chapters_table.setRowCount(len(vol_jobs))
 
+        manga_title = self.current_manga.title if self.current_manga else ""
+        meta = MultiSourceVolumeProvider.get_manga_meta(manga_title)
+        is_series_finished = (meta.get("status") in ["FINISHED", "finished", "completed"])
+
         for row, job in enumerate(vol_jobs):
             self.chapters_table.setRowHeight(row, 40)
 
@@ -1052,17 +1064,21 @@ class SearchView(QWidget):
 
             chap_count = len(job.chapters_list)
             is_last_vol = (row == len(vol_jobs) - 1)
-            is_incomplete = chap_count < 8 or (is_last_vol and chap_count < 9)
 
-            if is_incomplete:
-                title_text = f"{job.chapter_title} ({job.chapter_number}) — {chap_count} chapitres ⚠️ (Tome incomplet / En cours)"
+            if is_last_vol:
+                if is_series_finished:
+                    title_text = f"{job.chapter_title} ({job.chapter_number}) — {chap_count} chapitres 🏁 (Tome Final)"
+                    title_item = QTableWidgetItem(title_text)
+                    title_item.setForeground(QColor("#4ade80"))
+                    title_item.setToolTip("✅ Ce tome clôture la série officielle (Série terminée).")
+                else:
+                    title_text = f"{job.chapter_title} ({job.chapter_number}) — {chap_count} chapitres ⏳ (En cours de parution)"
+                    title_item = QTableWidgetItem(title_text)
+                    title_item.setForeground(QColor("#fbbf24"))
+                    title_item.setToolTip("⏳ Ce tome est en cours de parution.")
             else:
                 title_text = f"{job.chapter_title} ({job.chapter_number}) — {chap_count} chapitres"
-
-            title_item = QTableWidgetItem(title_text)
-            if is_incomplete:
-                title_item.setForeground(QColor("#fbbf24"))
-                title_item.setToolTip("⚠️ Ce tome est incomplet ou en cours de parution (contient moins de chapitres que le format officiel).")
+                title_item = QTableWidgetItem(title_text)
 
             title_item.setData(Qt.UserRole, job)
             self.chapters_table.setItem(row, 1, title_item)
