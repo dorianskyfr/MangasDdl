@@ -643,6 +643,9 @@ class SearchView(QWidget):
 
     def display_manga_details(self, data):
         details, chapters, src_name, vmap, manga_meta = data
+        self.current_manga_meta = manga_meta or {}
+        self.current_details = details
+
         if details.synopsis:
             self.manga_synopsis_label.setText(details.synopsis)
         if details.genres:
@@ -1046,9 +1049,14 @@ class SearchView(QWidget):
         vol_jobs = self.current_volume_jobs
         self.chapters_table.setRowCount(len(vol_jobs))
 
-        manga_title = self.current_manga.title if self.current_manga else ""
-        meta = MultiSourceVolumeProvider.get_manga_meta(manga_title)
-        is_series_finished = (meta.get("status") in ["FINISHED", "finished", "completed"])
+        meta = getattr(self, "current_manga_meta", {})
+        if not meta and self.current_manga:
+            meta = MultiSourceVolumeProvider.get_manga_meta(self.current_manga.title)
+        if not meta and hasattr(self, "current_details") and self.current_details:
+            meta = MultiSourceVolumeProvider.get_manga_meta(self.current_details.title)
+
+        status_raw = str(meta.get("status", "")).upper()
+        is_series_finished = (status_raw in ["FINISHED", "COMPLETED", "TERMINÉ", "TERMINE"])
 
         for row, job in enumerate(vol_jobs):
             self.chapters_table.setRowHeight(row, 40)

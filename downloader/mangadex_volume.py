@@ -174,9 +174,28 @@ class MultiSourceVolumeProvider:
 
     @classmethod
     def get_manga_meta(cls, manga_title: str) -> dict:
-        """Retourne les métadonnées enrichies du manga."""
+        """Retourne les métadonnées enrichies du manga avec normalisation robuste."""
+        if not manga_title:
+            return {}
         cache_key = manga_title.lower().strip()
-        return cls._meta_cache.get(cache_key, {})
+        if cache_key in cls._meta_cache:
+            return cls._meta_cache[cache_key]
+
+        # Normalisation sans tirets ni ponctuation
+        clean_key = re.sub(r'[^a-z0-9]', '', cache_key)
+        for k, v in cls._meta_cache.items():
+            if re.sub(r'[^a-z0-9]', '', k) == clean_key:
+                return v
+
+        # Correspondance par mots clés
+        k_words = set(re.findall(r'\w+', cache_key)) - STOPWORDS
+        if k_words:
+            for k, v in cls._meta_cache.items():
+                stored_words = set(re.findall(r'\w+', k)) - STOPWORDS
+                if stored_words and (k_words == stored_words or k_words.issubset(stored_words) or stored_words.issubset(k_words)):
+                    return v
+
+        return {}
 
     @classmethod
     def _build_ratio_map(
