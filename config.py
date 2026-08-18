@@ -2,6 +2,8 @@ import json
 import os
 from pathlib import Path
 
+APP_VERSION = "0.1"
+
 DEFAULT_DOWNLOAD_DIR = str(Path.home() / "Downloads" / "MangaDownloader")
 
 DEFAULT_CONFIG = {

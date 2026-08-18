@@ -1,6 +1,6 @@
 @echo off
-title Antigravity Manga Downloader v3.0
+title MangasDdl v0.1
 echo ==================================================
-echo    DÉMARRAGE DE ANTIGRAVITY MANGA DOWNLOADER v3.0
+echo            DEMARRAGE DE MANGASDDL v0.1
 echo ==================================================
 python main.py

@@ -49,7 +49,7 @@ class Exporter:
   {vol_tag}
   <LanguageISO>fr</LanguageISO>
   <Format>Digital</Format>
-  <ScanInformation>MangasDdl v3.0 Pro</ScanInformation>
+  <ScanInformation>MangasDdl v0.1</ScanInformation>
   <PageCount>{len(image_files)}</PageCount>
 </ComicInfo>"""
 

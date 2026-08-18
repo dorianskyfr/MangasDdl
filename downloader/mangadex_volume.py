@@ -679,3 +679,7 @@ class MultiSourceVolumeProvider:
             except Exception:
                 pass
         return None
+
+
+# Alias de rétrocompatibilité
+MangaDexVolumeProvider = MultiSourceVolumeProvider

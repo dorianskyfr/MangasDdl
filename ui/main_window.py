@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QIcon, QPixmap, QKeySequence, QDesktopServices, QAction
 
 from config import config_manager
+from updater import APP_VERSION, UpdateCheckWorker, PatchNotesDialog
 from ui.theme import theme_manager
 from ui.views.search_view import SearchView
 from ui.views.downloads_view import DownloadsView
@@ -20,13 +21,13 @@ from ui.widgets.toast_notification import ToastManager, show_toast, toast_succes
 
 
 class MainWindow(QMainWindow):
-    """Fenêtre principale de l'application avec UI moderne v3.0 Pro."""
+    """Fenêtre principale de l'application avec UI moderne v0.1."""
     
     theme_changed = Signal(str)
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MangasDdl — Téléchargeur & Lecteur de Mangas")
+        self.setWindowTitle(f"MangasDdl v{APP_VERSION} — Téléchargeur & Lecteur de Mangas")
         self.resize(1300, 900)
         self.setMinimumSize(1000, 700)
         
@@ -43,6 +44,9 @@ class MainWindow(QMainWindow):
         
         # Connexion du theme manager
         self.theme_changed.connect(self.apply_theme)
+
+        # Recherche automatique de mise à jour au démarrage
+        self.check_for_updates(manual=False)
 
     def _create_icon(self):
         """Crée une icône pour la fenêtre."""
@@ -132,6 +136,16 @@ class MainWindow(QMainWindow):
         # ── Menu Aide ──
         help_menu = menubar.addMenu("&Aide")
 
+        act_update = QAction("🚀 Rechercher les mises à jour...", self)
+        act_update.triggered.connect(lambda: self.check_for_updates(manual=True))
+        help_menu.addAction(act_update)
+
+        act_patchnotes = QAction("📋 Notes de Version (Patch Notes)...", self)
+        act_patchnotes.triggered.connect(self.show_patch_notes)
+        help_menu.addAction(act_patchnotes)
+
+        help_menu.addSeparator()
+
         act_shortcuts = QAction("⌨️ Raccourcis clavier", self)
         act_shortcuts.triggered.connect(self.show_shortcuts_dialog)
         help_menu.addAction(act_shortcuts)
@@ -166,6 +180,32 @@ class MainWindow(QMainWindow):
         else:
             self.log_viewer.show()
 
+    def check_for_updates(self, manual: bool = False):
+        """Lance la recherche asynchrone de mise à jour GitHub."""
+        self.update_worker = UpdateCheckWorker(manual=manual)
+        self.update_worker.update_result.connect(self._on_update_result)
+        self.update_worker.check_failed.connect(self._on_update_failed)
+        self.update_worker.start()
+
+    def _on_update_result(self, is_newer: bool, version: str, title: str, html_notes: str, url: str):
+        if is_newer:
+            toast_success(self, f"🚀 Nouvelle version v{version} disponible !")
+            self.log_viewer.log("SUCCESS", f"Mise à jour disponible : v{version} (actuelle : v{APP_VERSION})")
+            dlg = PatchNotesDialog(version, title, html_notes, url, is_update=True, parent=self)
+            dlg.exec()
+        else:
+            if hasattr(self.update_worker, 'manual') and self.update_worker.manual:
+                dlg = PatchNotesDialog(version, title, html_notes, url, is_update=False, parent=self)
+                dlg.exec()
+
+    def _on_update_failed(self, error_msg: str):
+        toast_error(self, error_msg)
+        self.log_viewer.log("WARN", f"Mise à jour : {error_msg}")
+
+    def show_patch_notes(self):
+        """Affiche le dialogue des notes de version."""
+        self.check_for_updates(manual=True)
+
     def show_shortcuts_dialog(self):
         """Affiche la boîte de dialogue des raccourcis."""
         msg = """<h3>⌨️ Raccourcis Clavier</h3>
@@ -185,9 +225,9 @@ class MainWindow(QMainWindow):
 
     def show_about_dialog(self):
         """Affiche la boîte À propos."""
-        msg = """<h3>📚 MangasDdl v3.0 Pro</h3>
-<p>Application de recherche, lecture et téléchargement de mangas & webtoons.</p>
-<p><b>Fonctionnalités :</b> Multi-sources, CBZ/PDF/EPUB, Mode Webtoon continu, Tomes officiels AniList HD.</p>
+        msg = f"""<h3>📚 MangasDdl v{APP_VERSION}</h3>
+<p>Application de recherche, lecture et téléchargement de mangas, manhwas & webtoons.</p>
+<p><b>Fonctionnalités :</b> 6 sources de scraping, Tomes officiels AniList HD, Watermark liseuse, Export CBZ/PDF/EPUB, Historique et Reprise de lecture.</p>
 <p>Dépôt GitHub : <a href='https://github.com/dorianskyfr/MangasDdl'>https://github.com/dorianskyfr/MangasDdl</a></p>"""
         QMessageBox.about(self, "À propos de MangasDdl", msg)
 
@@ -215,7 +255,7 @@ class MainWindow(QMainWindow):
     def update_status_bar(self):
         """Met à jour la barre de status."""
         theme_status = "Sombre" if theme_manager.is_dark else "Clair"
-        self.statusBar().showMessage(f"Prêt • Theme: {theme_status} • MangasDdl v3.0.0 Pro")
+        self.statusBar().showMessage(f"Prêt • Thème: {theme_status} • MangasDdl v{APP_VERSION}")
 
     def init_ui(self):
         central_widget = QWidget()
@@ -315,8 +355,11 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.theme_toggle_btn, alignment=Qt.AlignCenter)
 
         # --- Version ---
-        version_label = QLabel("v3.0.0 Pro")
-        version_label.setStyleSheet("color: #64748b; font-size: 11px; text-align: center;")
+        version_label = QPushButton(f"v{APP_VERSION}")
+        version_label.setCursor(Qt.PointingHandCursor)
+        version_label.setStyleSheet("color: #64748b; font-size: 11px; text-align: center; background: transparent; border: none; padding: 2px;")
+        version_label.setToolTip("Cliquer pour voir les Notes de Version (Patch Notes)")
+        version_label.clicked.connect(self.show_patch_notes)
         sidebar_layout.addWidget(version_label, alignment=Qt.AlignCenter)
 
         main_layout.addWidget(sidebar)
@@ -360,8 +403,10 @@ class MainWindow(QMainWindow):
         self.library_view.log_signal.connect(self.log_viewer.log)
         self.library_view.open_manga_requested.connect(self.open_manga_from_library)
         self.settings_view.theme_changed.connect(self.on_theme_changed_from_settings)
+        self.settings_view.check_updates_requested.connect(lambda: self.check_for_updates(manual=True))
+        self.settings_view.show_patch_notes_requested.connect(self.show_patch_notes)
 
-        self.log_viewer.log("INFO", "MangasDdl v3.0 Pro démarré avec succès.")
+        self.log_viewer.log("INFO", f"MangasDdl v{APP_VERSION} démarré avec succès.")
 
     def _get_theme_toggle_style(self) -> str:
         """Return the style of the theme toggle button."""

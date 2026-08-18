@@ -1,4 +1,9 @@
-# 📚 MangasDdl — Téléchargeur & Lecteur de Mangas / Webtoons
+# 📚 MangasDdl — Téléchargeur & Lecteur de Mangas / Webtoons `v0.1`
+
+![Version](https://img.shields.io/badge/version-0.1-blue.svg)
+![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen.svg)
+![PySide6](https://img.shields.io/badge/PySide6-Qt6-informational.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 Application de bureau moderne et complète en **Python / PySide6 (Qt6)** pour rechercher, lire et télécharger des chapitres et des tomes complets de mangas et webtoons en haute résolution depuis plusieurs sources francophones et internationales.
 

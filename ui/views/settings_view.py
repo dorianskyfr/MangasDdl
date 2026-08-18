@@ -13,6 +13,8 @@ class SettingsView(QWidget):
     
     log_signal = Signal(str, str)
     theme_changed = Signal(str)
+    check_updates_requested = Signal()
+    show_patch_notes_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,7 +39,7 @@ class SettingsView(QWidget):
         layout.addWidget(scroll_area)
 
         # Titre
-        title = QLabel("Parametres de l'application")
+        title = QLabel("Paramètres de l'application")
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #38bdf8;")
         main_layout.addWidget(title)
 
@@ -60,6 +62,11 @@ class SettingsView(QWidget):
         # 4. CATEGORIE: SOURCES
         # =====================================================================
         self.create_sources_group(main_layout)
+
+        # =====================================================================
+        # 5. CATEGORIE: MISES À JOUR & INFOS
+        # =====================================================================
+        self.create_updates_group(main_layout)
 
         # =====================================================================
         # Bouton d'enregistrement
@@ -257,6 +264,44 @@ class SettingsView(QWidget):
         test_sources_btn.clicked.connect(self.test_all_sources_ping)
         group_layout.addWidget(test_sources_btn)
 
+        layout.addWidget(group)
+
+    def create_updates_group(self, layout):
+        """Crée le groupe Mises à jour et informations de version."""
+        from config import APP_VERSION
+        group = QGroupBox("Mises à Jour & Version")
+        group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; border: none; padding-top: 12px; margin-top: 16px; } QGroupBox::title { subcontrol-origin: margin; left: 0px; padding: 0 4px; color: #38bdf8; }")
+        
+        group_layout = QVBoxLayout(group)
+        group_layout.setSpacing(12)
+
+        info_layout = QHBoxLayout()
+        ver_lbl = QLabel(f"Version actuelle installée : <b>v{APP_VERSION}</b>")
+        ver_lbl.setStyleSheet("font-size: 13px; color: #f8fafc;")
+        info_layout.addWidget(ver_lbl)
+        info_layout.addStretch()
+
+        gh_lbl = QLabel("Dépôt GitHub : <b>dorianskyfr/MangasDdl</b>")
+        gh_lbl.setStyleSheet("font-size: 12px; color: #94a3b8;")
+        info_layout.addWidget(gh_lbl)
+        group_layout.addLayout(info_layout)
+
+        btns_layout = QHBoxLayout()
+        btns_layout.setSpacing(10)
+
+        check_btn = QPushButton("🚀 Rechercher les mises à jour")
+        check_btn.setObjectName("SecondaryButton")
+        check_btn.setFixedHeight(36)
+        check_btn.clicked.connect(self.check_updates_requested.emit)
+        btns_layout.addWidget(check_btn)
+
+        patch_btn = QPushButton("📋 Voir les Notes de Version (Patch Notes)")
+        patch_btn.setObjectName("SecondaryButton")
+        patch_btn.setFixedHeight(36)
+        patch_btn.clicked.connect(self.show_patch_notes_requested.emit)
+        btns_layout.addWidget(patch_btn)
+
+        group_layout.addLayout(btns_layout)
         layout.addWidget(group)
 
     def test_all_sources_ping(self):

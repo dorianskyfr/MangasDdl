@@ -1,5 +1,5 @@
 """
-Systeme de design premium & responsive (UI v3.0 Pro)
+Systeme de design premium & responsive (UI v0.1)
 Inspire par le design moderne Glassmorphism & Obsidian Dark.
 Supporte les themes Sombre et Clair avec animations fluides.
 """
