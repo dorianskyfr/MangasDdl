@@ -3,6 +3,12 @@ import os
 import zipfile
 import io
 import re
+import tempfile
+import functools
+import uuid
+from datetime import datetime, timezone
+from xml.sax.saxutils import escape
+from app_info import APP_VERSION
 from pathlib import Path
 from typing import List, Optional
 from PIL import Image
@@ -14,8 +20,27 @@ def _natural_sort_key(s: Path):
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s.name)]
 
 
+def atomic_export(func):
+    @functools.wraps(func)
+    def wrapped(images_dir, output_path, *args, **kwargs):
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(prefix=".export-", suffix=output_path.suffix, dir=output_path.parent)
+        os.close(fd)
+        temporary = Path(name)
+        try:
+            if func(images_dir, temporary, *args, **kwargs) and temporary.stat().st_size > 0:
+                temporary.replace(output_path)
+                return True
+            return False
+        finally:
+            temporary.unlink(missing_ok=True)
+    return wrapped
+
+
 class Exporter:
     @staticmethod
+    @atomic_export
     def export_cbz(
         images_dir: Path,
         output_cbz_path: Path,
@@ -38,8 +63,8 @@ class Exporter:
             output_cbz_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Métadonnées ComicInfo.xml pour compatibilité YACReader, Mihon, Chunky, Perfect Viewer
-            title_clean = manga_title.strip() or 'Manga'
-            chap_clean = str(chapter_number).strip() or '1'
+            title_clean = escape(manga_title.strip() or 'Manga')
+            chap_clean = escape(str(chapter_number).strip() or '1')
             vol_tag = f"<Volume>{volume_number}</Volume>" if volume_number is not None else ""
 
             comic_info_xml = f"""<?xml version="1.0" encoding="utf-8"?>
@@ -49,7 +74,7 @@ class Exporter:
   {vol_tag}
   <LanguageISO>fr</LanguageISO>
   <Format>Digital</Format>
-  <ScanInformation>MangasDdl v0.1</ScanInformation>
+  <ScanInformation>MangasDdl v{APP_VERSION}</ScanInformation>
   <PageCount>{len(image_files)}</PageCount>
 </ComicInfo>"""
 
@@ -63,6 +88,7 @@ class Exporter:
             return False
 
     @staticmethod
+    @atomic_export
     def export_pdf(images_dir: Path, output_pdf_path: Path) -> bool:
         """
         Convertit un dossier d'images en document PDF unique et optimisé.
@@ -91,7 +117,7 @@ class Exporter:
                             converted_paths.append(str(temp_jpg))
                             temp_files.append(temp_jpg)
                     except Exception:
-                        converted_paths.append(str(img_path))
+                        raise ValueError(f"Image invalide : {img_path.name}")
                 else:
                     converted_paths.append(str(img_path))
 
@@ -107,7 +133,11 @@ class Exporter:
                         im = Image.open(p).convert('RGB')
                         pil_imgs.append(im)
                     except Exception:
-                        pass
+                        for image in pil_imgs:
+                            image.close()
+                        raise ValueError(f"Image invalide : {p}")
+                if not pil_imgs:
+                    raise ValueError("Aucune page PDF valide.")
                 if pil_imgs:
                     pil_imgs[0].save(output_pdf_path, save_all=True, append_images=pil_imgs[1:], resolution=100.0, quality=92)
                     for im in pil_imgs:
@@ -127,6 +157,7 @@ class Exporter:
             return False
 
     @staticmethod
+    @atomic_export
     def export_epub(
         images_dir: Path,
         output_epub_path: Path,
@@ -149,6 +180,7 @@ class Exporter:
             output_epub_path.parent.mkdir(parents=True, exist_ok=True)
             title = f"{manga_title} - Tome {volume_number}" if volume_number else f"{manga_title} - Chapitre {chapter_number}"
 
+            title = escape(title)
             with zipfile.ZipFile(output_epub_path, 'w', zipfile.ZIP_DEFLATED) as epub:
                 # mimetype (doit être non compressé en premier)
                 epub.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
@@ -162,7 +194,12 @@ class Exporter:
 </container>"""
                 epub.writestr("META-INF/container.xml", container_xml)
 
-                manifest_items = []
+                nav = f'''<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>Sommaire</title></head><body><nav epub:type="toc" id="toc"><h1>Sommaire</h1>
+<ol><li><a href="page_0001.xhtml">{title}</a></li></ol></nav></body></html>'''
+                epub.writestr("OEBPS/nav.xhtml", nav)
+                manifest_items = ['<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>']
                 spine_items = []
 
                 for idx, img_p in enumerate(image_files, 1):
@@ -196,9 +233,10 @@ class Exporter:
                 content_opf = f"""<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="pub-id">urn:uuid:mangasddl-{abs(hash(title))}</dc:identifier>
+    <dc:identifier id="pub-id">urn:uuid:{uuid.uuid5(uuid.NAMESPACE_URL, title)}</dc:identifier>
     <dc:title>{title}</dc:title>
     <dc:language>fr</dc:language>
+    <meta property="dcterms:modified">{datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}</meta>
     <meta property="rendition:layout">pre-paginated</meta>
     <meta property="rendition:orientation">auto</meta>
     <meta property="rendition:spread">none</meta>

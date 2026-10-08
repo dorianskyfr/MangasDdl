@@ -3,12 +3,15 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
     QStackedWidget, QLabel, QFrame, QSplitter, QMessageBox,
-    QMenuBar, QMenu
+    QMenuBar, QMenu, QApplication
 )
-from PySide6.QtCore import Qt, Signal, QUrl
+from PySide6.QtCore import Qt, Signal, QUrl, QSize, QTimer
 from PySide6.QtGui import QIcon, QPixmap, QKeySequence, QDesktopServices, QAction
 
 from config import config_manager
+from ui.icons import icon
+from ui.tasks import active_workers
+from scrapers.factory import ScraperFactory
 from updater import APP_VERSION, UpdateCheckWorker, PatchNotesDialog
 from ui.theme import theme_manager
 from ui.views.search_view import SearchView
@@ -21,38 +24,38 @@ from ui.widgets.toast_notification import ToastManager, show_toast, toast_succes
 
 
 class MainWindow(QMainWindow):
-    """Fenêtre principale de l'application avec UI moderne v0.1."""
-    
+    """Fenêtre principale de l'application avec UI moderne v1.0."""
+
     theme_changed = Signal(str)
-    
-    def __init__(self):
+
+    def __init__(self, check_updates=True):
         super().__init__()
         self.setWindowTitle(f"MangasDdl v{APP_VERSION} — Téléchargeur & Lecteur de Mangas")
         self.resize(1300, 900)
-        self.setMinimumSize(1000, 700)
-        
+        self.setMinimumSize(1040, 700)
+        self._closing = False
+
         # Configuration de la fenêtre
         self.setWindowIcon(self._create_icon())
-        
+
         # Initialiser le gestionnaire de toasts
         self.toast_manager = ToastManager(self)
-        
+
         self.init_ui()
         self._create_menu_bar()
         self.apply_theme()
         self.update_status_bar()
-        
+
         # Connexion du theme manager
         self.theme_changed.connect(self.apply_theme)
 
         # Recherche automatique de mise à jour au démarrage
-        self.check_for_updates(manual=False)
+        if check_updates:
+            self.check_for_updates(manual=False)
 
     def _create_icon(self):
         """Crée une icône pour la fenêtre."""
-        pixmap = QPixmap(64, 64)
-        pixmap.fill(Qt.transparent)
-        return QIcon(pixmap)
+        return icon("book", size=64)
 
     def _create_menu_bar(self):
         """Crée la barre de menu native supérieure."""
@@ -124,6 +127,7 @@ class MainWindow(QMainWindow):
         sources_list = [
             ("Anime-Sama", "https://anime-sama.to"),
             ("Crunchyscan", "https://sushiscan.fr"),
+            ("UNekoScans", "https://unekoscans.fr"),
             ("JapScan", "https://www.japscan.foo"),
             ("Scan-VF", "https://www.scan-vf.net"),
             ("MangaDex", "https://api.mangadex.org"),
@@ -182,12 +186,19 @@ class MainWindow(QMainWindow):
 
     def check_for_updates(self, manual: bool = False):
         """Lance la recherche asynchrone de mise à jour GitHub."""
+        if self._closing:
+            return
+        if hasattr(self, "update_worker") and self.update_worker.isRunning():
+            self.update_worker.manual = self.update_worker.manual or manual
+            return
         self.update_worker = UpdateCheckWorker(manual=manual)
         self.update_worker.update_result.connect(self._on_update_result)
         self.update_worker.check_failed.connect(self._on_update_failed)
         self.update_worker.start()
 
     def _on_update_result(self, is_newer: bool, version: str, title: str, html_notes: str, url: str):
+        if self._closing:
+            return
         if is_newer:
             toast_success(self, f"🚀 Nouvelle version v{version} disponible !")
             self.log_viewer.log("SUCCESS", f"Mise à jour disponible : v{version} (actuelle : v{APP_VERSION})")
@@ -199,6 +210,8 @@ class MainWindow(QMainWindow):
                 dlg.exec()
 
     def _on_update_failed(self, error_msg: str):
+        if self._closing:
+            return
         toast_error(self, error_msg)
         self.log_viewer.log("WARN", f"Mise à jour : {error_msg}")
 
@@ -235,16 +248,19 @@ class MainWindow(QMainWindow):
         """Applique le thème actuel à la fenêtre."""
         if theme_name:
             theme_manager.set_theme(theme_name)
-        
-        theme_css = theme_manager.get_theme()
-        self.setStyleSheet(theme_css)
+
+        theme_manager.apply(QApplication.instance())
+        if hasattr(self, "theme_toggle_btn"):
+            self.theme_toggle_btn.setText("☀  Thème clair" if theme_manager.is_dark else "☾  Thème sombre")
+            for name, button in self.nav_buttons.items():
+                button.setIcon(icon(button.property("icon_name"), theme_manager.colors["accent"]))
         self._update_custom_styles()
 
     def _update_custom_styles(self):
         """Met à jour les styles personnalisés en fonction du thème."""
         is_dark = theme_manager.is_dark
-        status_color = "#94a3b8" if is_dark else "#475569"
-        status_bg = "#0f1420" if is_dark else "#e2e8f0"
+        status_color = theme_manager.colors["muted"]
+        status_bg = theme_manager.colors["panel"]
         self.statusBar().setStyleSheet(f"""
             color: {status_color};
             font-size: 11px;
@@ -270,13 +286,14 @@ class MainWindow(QMainWindow):
         # =====================================================================
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(260)
+        sidebar.setFixedWidth(216)
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(12, 20, 12, 20)
+        sidebar_layout.setContentsMargins(16, 24, 16, 20)
         sidebar_layout.setSpacing(10)
 
         # --- Header Sidebar (Logo + Title) ---
         header_frame = QFrame()
+        header_frame.setStyleSheet("background: transparent;")
         header_layout = QVBoxLayout(header_frame)
         header_layout.setSpacing(6)
         header_layout.setContentsMargins(0, 0, 0, 0)
@@ -285,7 +302,7 @@ class MainWindow(QMainWindow):
         app_title.setObjectName("AppLogo")
         header_layout.addWidget(app_title)
 
-        subtitle = QLabel("Anime-Sama • JapScan • SushiScan • MangaDex • Scan-VF")
+        subtitle = QLabel("Votre prochaine lecture.")
         subtitle.setObjectName("AppSubtitle")
         header_layout.addWidget(subtitle)
 
@@ -298,11 +315,11 @@ class MainWindow(QMainWindow):
         status_card_layout = QHBoxLayout(status_card)
         status_card_layout.setContentsMargins(12, 0, 12, 0)
 
-        status_icon = QLabel("🟢")
+        status_icon = QLabel("●")
         status_icon.setStyleSheet("font-size: 14px;")
         status_card_layout.addWidget(status_icon)
 
-        status_text = QLabel("5 Sources Actives")
+        status_text = QLabel(f"{len(ScraperFactory.list_sources())} sources")
         status_text.setStyleSheet("font-weight: bold; font-size: 12px; color: #4ade80;")
         status_card_layout.addWidget(status_text)
         status_card_layout.addStretch()
@@ -317,16 +334,19 @@ class MainWindow(QMainWindow):
 
         # --- Navigation Buttons ---
         nav_buttons = [
-            ("🔍", "Recherche", 0, "nav_search_btn"),
-            ("⬇️", "Téléchargements", 1, "nav_dl_btn"),
-            ("⭐", "Bibliothèque", 4, "nav_lib_btn"),
-            ("⚙️", "Paramètres", 2, "nav_settings_btn"),
-            ("📊", "Statistiques", 3, "nav_stats_btn"),
+            ("search", "Explorer", 0, "nav_search_btn"),
+            ("download", "Téléchargements", 1, "nav_dl_btn"),
+            ("library", "Bibliothèque", 4, "nav_lib_btn"),
+            ("settings", "Paramètres", 2, "nav_settings_btn"),
+            ("stats", "Statistiques", 3, "nav_stats_btn"),
         ]
 
         self.nav_buttons = {}
-        for icon, text, index, obj_name in nav_buttons:
-            btn = QPushButton(f"{icon}  {text}")
+        for icon_name, text, index, obj_name in nav_buttons:
+            btn = QPushButton(text)
+            btn.setIcon(icon(icon_name))
+            btn.setIconSize(QSize(20, 20))
+            btn.setProperty("icon_name", icon_name)
             btn.setObjectName(obj_name)
             btn.setProperty("active", "false")
             btn.setCursor(Qt.PointingHandCursor)
@@ -347,9 +367,9 @@ class MainWindow(QMainWindow):
         # --- Theme Toggle Button ---
         self.theme_toggle_btn = QPushButton()
         self.theme_toggle_btn.setObjectName("themeToggleBtn")
-        self.theme_toggle_btn.setFixedSize(40, 40)
+        self.theme_toggle_btn.setFixedHeight(42)
         self.theme_toggle_btn.setCursor(Qt.PointingHandCursor)
-        self.theme_toggle_btn.setStyleSheet(self._get_theme_toggle_style())
+        self.theme_toggle_btn.setStyleSheet("")
         self.theme_toggle_btn.clicked.connect(self.toggle_theme)
         self.theme_toggle_btn.setToolTip("Basculer entre thème sombre et clair (Ctrl+T)")
         sidebar_layout.addWidget(self.theme_toggle_btn, alignment=Qt.AlignCenter)
@@ -388,7 +408,8 @@ class MainWindow(QMainWindow):
 
         main_splitter.addWidget(self.stacked_widget)
         main_splitter.addWidget(self.log_viewer)
-        main_splitter.setSizes([700, 200])
+        main_splitter.setSizes([760, 140])
+        self.log_viewer.hide()
 
         main_layout.addWidget(main_splitter)
 
@@ -416,7 +437,7 @@ class MainWindow(QMainWindow):
         text_color = "#f8fafc" if is_dark else "#0f172a"
         hover_bg = "#1a2234" if is_dark else "#f1f5f9"
         hover_border = "#38bdf8"
-        
+
         return f"""
             QPushButton {{
                 background-color: {bg_color};
@@ -433,9 +454,18 @@ class MainWindow(QMainWindow):
 
     def toggle_theme(self):
         """Toggle between dark and light theme."""
-        new_theme = theme_manager.toggle_theme()
+        new_theme = "light" if theme_manager.is_dark else "dark"
+        try:
+            config_manager.set("theme", new_theme)
+        except (OSError, ValueError) as error:
+            toast_error(self, str(error))
+            return
+        theme_manager.set_theme(new_theme)
+        self.settings_view.theme_combo.blockSignals(True)
+        self.settings_view.theme_combo.setCurrentText("Clair" if new_theme == "light" else "Sombre")
+        self.settings_view.theme_combo.blockSignals(False)
         self.theme_changed.emit(new_theme)
-        self.theme_toggle_btn.setStyleSheet(self._get_theme_toggle_style())
+        self.theme_toggle_btn.setStyleSheet("")
         self.update_status_bar()
         self.statusBar().showMessage(f"Thème : {'Sombre' if theme_manager.is_dark else 'Clair'}", 3000)
 
@@ -443,7 +473,7 @@ class MainWindow(QMainWindow):
         """Handle theme change from settings."""
         theme_manager.set_theme(theme_name)
         self.apply_theme(theme_name)
-        self.theme_toggle_btn.setStyleSheet(self._get_theme_toggle_style())
+        self.theme_toggle_btn.setStyleSheet("")
         self.update_status_bar()
 
     def on_download_requested(self, jobs: list):
@@ -456,13 +486,16 @@ class MainWindow(QMainWindow):
         """Redirige vers l'onglet Recherche et effectue la recherche du manga favori."""
         self.switch_view(0)
         self.search_view.source_combo.setCurrentText(manga.source)
-        self.search_view.search_input.setText(manga.title)
-        self.search_view.start_search()
+        self.search_view.select_manga(manga)
 
     def switch_view(self, index: int):
         """Switch to the specified view."""
+        if self._closing:
+            return
         self.stacked_widget.setCurrentIndex(index)
-        
+        if index == 0:
+            self.search_view.search_input.setFocus()
+
         if index == 3:
             self.stats_view.refresh_stats()
         elif index == 4:
@@ -482,7 +515,19 @@ class MainWindow(QMainWindow):
     def show_toast(self, title: str, message: str, toast_type: str = "info", duration: int = 3):
         """Affiche une notification toast."""
         self.toast_manager.show(title, message, toast_type, duration)
-    
+
     def closeEvent(self, event):
         """Handle window close."""
+        workers = active_workers()
+        if workers:
+            event.ignore()
+            if not self._closing:
+                self._closing = True
+                self.centralWidget().setEnabled(False)
+                self.downloads_view.cancel_all()
+            for worker in workers:
+                worker.requestInterruption()
+            self.statusBar().showMessage("Fermeture : arrêt des tâches en cours…")
+            QTimer.singleShot(200, self.close)
+            return
         event.accept()

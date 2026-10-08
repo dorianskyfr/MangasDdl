@@ -1,96 +1,88 @@
-# 📚 MangasDdl — Téléchargeur & Lecteur de Mangas / Webtoons `v0.1`
+# MangasDdl 1.0
 
-![Version](https://img.shields.io/badge/version-0.1-blue.svg)
-![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen.svg)
-![PySide6](https://img.shields.io/badge/PySide6-Qt6-informational.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+Application de bureau pour rechercher, lire et télécharger des mangas et webtoons. Interface Qt / PySide6, thèmes sombre et clair, bibliothèque de favoris et exports CBZ, PDF, EPUB ou images.
 
-Application de bureau moderne et complète en **Python / PySide6 (Qt6)** pour rechercher, lire et télécharger des chapitres et des tomes complets de mangas et webtoons en haute résolution depuis plusieurs sources francophones et internationales.
+![Interface sombre](docs/screenshots/dark.png)
 
----
+<details>
+<summary>Voir le thème clair</summary>
 
-## ✨ Fonctionnalités Principales
+![Interface claire](docs/screenshots/light.png)
 
-- 🔍 **Multi-Sources Intégrées** :
-  - **Anime-Sama** (Catalogue complet, haute vitesse)
-  - **SushiScan / CrunchyScan**
-  - **JapScan**
-  - **Scan-VF**
-  - **MangaDex** (API officielle)
-- 🛡️ **Basculement Automatique (Fallback)** : Si une source est bloquée par Cloudflare ou rencontre une erreur, l'application bascule automatiquement et de façon transparente vers une autre source pour télécharger les pages.
-- 📦 **Regroupement en Tomes Officiels** :
-  - Détection et regroupement automatique des chapitres en tomes officiels via **AniList**, **Kitsu** et **MangaDex**.
-  - Récupération des couvertures officielles en HD.
-  - Incrustation automatique du libellé **TOME XX** en haut de couverture pour une identification instantanée sur liseuse (Kobo, Kindle).
-- 📜 **Mode Webtoon Intelligent** :
-  - Détection automatique des manhwas / webtoons (*TBATE, Solo Leveling, Tower of God, etc.*).
-  - Assemblage (*stitching*) vertical sans perte jusqu'à 15 000 px pour une fluidité parfaite sur liseuse et lecteur d'images.
-- 📖 **Visionneuse Intégrée (Reader)** :
-  - Lecture page par page ou défilement continu vertical Webtoon.
-  - Mise en cache et préchargement fluide.
-- 💾 **Formats d'Export Multiples** :
-  - **CBZ** (Idéal pour liseuses et Comic Readers)
-  - **PDF**
-  - **EPUB**
-  - **Dossier d'Images**
-- ⭐ **Gestion des Favoris & Bibliothèque** : Suivez vos lectures et retrouvez vos mangas préférés en un clic.
-- ⚡ **Téléchargement Multi-threadé** : Téléchargement rapide et parallèle avec gestion des reprises et des timeouts.
+</details>
 
----
+## Démarrer
 
-## 🚀 Installation & Lancement
+**Application portable Windows :** dans l'onglet [Actions](https://github.com/dorianskyfr/MangasDdl/actions), ouvrez une exécution réussie de « Tests et application portable », téléchargez l'artefact Windows, puis décompressez les deux archives. Lancez `MangasDdl.exe` en gardant le dossier `_internal` à côté. La disponibilité de l'artefact dépend de la réussite de la compilation Windows.
 
-### Prérequis
-- **Python 3.10+** (Recommandé : Python 3.11 à 3.14)
-- **Git**
+**Depuis le code source :** installez Python **3.12**, puis :
 
-### 1. Cloner le dépôt
-```bash
-git clone https://github.com/dorianskyfr/MangasDdl.git
-cd MangasDdl
-```
+```sh
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# Linux / macOS
+source .venv/bin/activate
 
-### 2. Installer les dépendances
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Lancer l'application
-Double-cliquez sur `Lancer_App.bat` ou lancez en ligne de commande :
-```bash
+python -m pip install -r requirements-lock.txt
 python main.py
 ```
 
----
+Sur Windows, `Lancer_App.bat` prépare également l'environnement au premier lancement. Python doit être installé avec le lanceur `py` et la première installation nécessite Internet.
 
-## 🛠️ Architecture du Projet
+Sur Linux, Qt nécessite les bibliothèques graphiques du système. Sous Ubuntu, installez au besoin `libegl1 libopengl0 libxkbcommon0 libxcb-cursor0`.
 
-```text
-├── downloader/             # Moteur de téléchargement, export (CBZ/PDF), stitching & covers
-│   ├── exporter.py         # Création CBZ, PDF, EPUB, stitching Webtoon
-│   ├── mangadex_volume.py  # Mapping des chapitres par tomes officiels (AniList/Kitsu)
-│   ├── volume_cover_provider.py # Récupération des covers HD & fallbacks
-│   └── worker.py           # Worker de téléchargement multi-threadé & basculement
-├── scrapers/               # Scrapers par site avec gestion des formats
-│   ├── anime_sama.py
-│   ├── crunchyscan.py
-│   ├── japscan.py
-│   ├── mangadex.py
-│   ├── scan_vf.py
-│   ├── unekoscans.py
-│   └── factory.py          # Fabrique de scrapers
-├── ui/                     # Interface graphique PySide6 (Qt6)
-│   ├── main_window.py      # Fenêtre principale & navigation
-│   ├── theme.py            # Thème Dark Moderne & styles QSS
-│   ├── views/              # Vues (Recherche, Téléchargements, Bibliothèque, Paramètres)
-│   └── widgets/            # Lecteur intégré, visionneuse de logs, notifications
-├── config.py               # Gestionnaire de configuration (JSON)
-├── favorites.py            # Gestionnaire des favoris
-├── models.py               # Modèles de données (Manga, Chapter, Page, DownloadJob)
-└── main.py                 # Point d'entrée de l'application
+## Utiliser l'application
+
+1. Dans **Explorer**, recherchez un titre sur une source ou sur toutes les sources.
+2. Sélectionnez un résultat pour charger ses détails et ses chapitres.
+3. Ouvrez le lecteur, ajoutez le manga aux favoris ou choisissez les chapitres à télécharger.
+4. Dans **Téléchargements**, suivez la progression, mettez en pause, annulez ou relancez une tâche en échec.
+5. Dans **Paramètres**, choisissez votre dossier, votre format d'export et les domaines des sources.
+
+La file traite deux chapitres ou tomes à la fois, avec 1 à 16 requêtes de pages par tâche. Les pages déjà présentes sont vérifiées avant une reprise. Un chapitre avec des pages manquantes ou un tome avec un chapitre manquant reste en échec ; les images sont conservées pour une nouvelle tentative. Une couverture indisponible n'empêche pas l'export des chapitres complets.
+
+Le lecteur propose un affichage page par page et un défilement webtoon, avec quatre chargements simultanés au maximum. Un chapitre n'est marqué comme lu qu'après l'affichage de sa dernière page, ou après avoir atteint le bas du webtoon entièrement chargé.
+
+## Données personnelles
+
+Les préférences, favoris et historiques sont enregistrés dans le dossier utilisateur, indépendamment du dossier depuis lequel l'application est lancée :
+
+- Windows : `%LOCALAPPDATA%\MangasDdl`
+- Linux : `${XDG_DATA_HOME:-~/.local/share}/MangasDdl`
+- macOS : `~/Library/Application Support/MangasDdl`
+
+Les anciens fichiers présents à côté du code sont copiés à la première utilisation, sans suppression des originaux. La configuration personnelle n'est plus suivie par Git. `config.example.json` documente les options ; le dossier de téléchargement par défaut est `~/Downloads/MangaDownloader`. La variable `MANGASDDL_DATA_DIR` permet de choisir un autre dossier de données, notamment pour les tests.
+
+## Sources et disponibilité
+
+Anime-Sama, Crunchyscan / SushiScan, JapScan, UNekoScans, Scan-VF et MangaDex sont configurés. Leurs domaines, contenus et protections peuvent changer. **Paramètres → Tester les sources** effectue une vérification réseau sans bloquer l'interface. Les badges indiquent une source configurée, pas une disponibilité garantie.
+
+Vérifications du 8 octobre 2026 dans l'environnement de développement : les recherches MangaDex et Anime-Sama renvoient des résultats ; les pages d'accueil de cinq sources répondent en HTTP 200 ; UNekoScans refuse l'accès en HTTP 403. Ces vérifications ne garantissent pas l'accès à chaque chapitre. Les correspondances de tomes peuvent aussi dépendre de métadonnées externes.
+
+## Vérifier et compiler
+
+```sh
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+python scripts/build.py
 ```
 
----
+Sous Linux sans affichage, utilisez `QT_QPA_PLATFORM=offscreen` pour les tests et la compilation. Le script compile l'application pour le système courant, vérifie son démarrage et crée une archive dans `dist/`. La CI exécute ces étapes sous Windows et Linux. Une compilation native macOS reste à valider sur macOS.
 
-## 📄 Licence
-Projet distribué sous licence MIT.
+Les tests couvrent les exports, les images manquantes, la reprise, les paramètres invalides, la sauvegarde atomique, les chemins de fichiers, les réponses de recherche obsolètes, les tâches de fond, l'annulation, la file de téléchargement et les changements de mode du lecteur. Voir [CHANGELOG.md](CHANGELOG.md).
+
+## Raccourcis
+
+| Action | Raccourci |
+| --- | --- |
+| Explorer | Ctrl+F |
+| Téléchargements | Ctrl+D |
+| Bibliothèque | Ctrl+B |
+| Paramètres | Ctrl+, |
+| Ouvrir le dossier | Ctrl+O |
+| Thème clair / sombre | Ctrl+T |
+| Journal d'activité | Ctrl+L |
+| Plein écran | F11 |
+| Lecteur : précédent / suivant | ← / → / Espace |
+| Lecteur : zoom / réinitialiser | Ctrl+plus / Ctrl+moins / Ctrl+0 |

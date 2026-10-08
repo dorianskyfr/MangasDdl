@@ -52,10 +52,10 @@ class StatsView(QWidget):
         # 1. KPI Cards Row
         self.kpi_layout = QGridLayout()
         self.kpi_layout.setSpacing(16)
-        
-        self.card_downloads = self._create_kpi_card("📖 Chapitres", "0", "Téléchargés dans le dossier", "#38bdf8")
+
+        self.card_downloads = self._create_kpi_card("Fichiers", "0", "Dans le dossier de téléchargement", "#38bdf8")
         self.card_storage = self._create_kpi_card("💾 Espace Occupé", "0 Mo", "Dossier MangaDownloader", "#a855f7")
-        self.card_sources = self._create_kpi_card("🌐 Sources Actives", "6 / 6", "100% Opérationnelles", "#4ade80")
+        self.card_sources = self._create_kpi_card("Sources disponibles", "6", "À vérifier dans les paramètres", "#4ade80")
         self.card_speed = self._create_kpi_card("⚡ Threads Parallèles", f"{config_manager.get('max_concurrent_threads', 4)} Threads", "Vitesse optimisée", "#fbbf24")
         self.card_read_chapters = self._create_kpi_card("👁️ Chapitres Lus", "0", "Via le lecteur intégré", "#ec4899")
         self.card_read_mangas = self._create_kpi_card("📚 Mangas Lus", "0", "Séries différentes", "#f97316")
@@ -76,7 +76,7 @@ class StatsView(QWidget):
         sources_layout.setContentsMargins(16, 16, 16, 16)
         sources_layout.setSpacing(14)
 
-        sources_title = QLabel("🌐 État des 6 Sources de Scraping")
+        sources_title = QLabel("Sources configurées")
         sources_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #f8fafc;")
         sources_layout.addWidget(sources_title)
 
@@ -88,7 +88,7 @@ class StatsView(QWidget):
             ("JapScan", "Homepage Catalog + Cloudflare Bypass", "https://www.japscan.foo", "#4ade80"),
             ("SushiScan / Crunchy", "WP-Manga Engine", "https://sushiscan.fr", "#f97316"),
             ("UNekoScans", "Direct Scraper & Sitemap", "https://unekoscans.fr", "#ec4899"),
-            ("Scan-VF", "HTML Selector Engine", "https://scan-vf.co", "#8b5cf6"),
+            ("Scan-VF", "HTML Selector Engine", "https://www.scan-vf.net", "#8b5cf6"),
             ("MangaDex", "API REST Officielle (v5)", "https://api.mangadex.org", "#eab308"),
         ]
 
@@ -201,7 +201,7 @@ class StatsView(QWidget):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(12)
 
-        badge = QLabel("ONLINE")
+        badge = QLabel("CONFIGURÉE")
         badge.setStyleSheet(f"""
             background-color: {color}22;
             color: {color};
@@ -214,10 +214,10 @@ class StatsView(QWidget):
 
         info_layout = QVBoxLayout()
         info_layout.setSpacing(2)
-        
+
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet("color: #f8fafc; font-size: 13px; font-weight: bold;")
-        
+
         desc_lbl = QLabel(desc)
         desc_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
 

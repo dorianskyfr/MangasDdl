@@ -13,7 +13,8 @@ import httpx
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 STOPWORDS = {"the", "a", "an", "no", "ni", "ga", "de", "to", "wa", "mo", "in", "of", "and", "du", "au", "la", "le", "les", "des", "tei", "san"}
-CACHE_FILE = Path("metadata_cache.json")
+from storage import user_file, atomic_json_write
+CACHE_FILE = user_file("metadata_cache.json")
 
 # Base canonique pré-indexée pour les œuvres légendaires (Garantit 0ms et 100% de fiabilité)
 CANONICAL_DB: Dict[str, dict] = {
@@ -281,7 +282,7 @@ class MultiSourceVolumeProvider:
         if cls._loaded_disk:
             return
         cls._loaded_disk = True
-        
+
         # Charger la base canonique d'abord
         for k, v in CANONICAL_DB.items():
             cls._meta_cache[k] = v
@@ -301,8 +302,7 @@ class MultiSourceVolumeProvider:
     @classmethod
     def _save_disk_cache(cls):
         try:
-            with open(CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(cls._meta_cache, f, ensure_ascii=False, indent=2)
+            atomic_json_write(CACHE_FILE, cls._meta_cache.copy())
         except Exception:
             pass
 

@@ -1,3 +1,4 @@
+from storage import user_file, atomic_json_write
 """
 Gestionnaire de l'historique de lecture.
 Permet de suivre quels chapitres ont été lus et quand.
@@ -7,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-READING_HISTORY_FILE = Path("reading_history.json")
+READING_HISTORY_FILE = user_file("reading_history.json")
 
 
 class ReadingHistoryManager:
@@ -21,16 +22,14 @@ class ReadingHistoryManager:
         if READING_HISTORY_FILE.exists():
             try:
                 with open(READING_HISTORY_FILE, "r", encoding="utf-8") as f:
-                    self.history = json.load(f)
+                    data = json.load(f)
+                    self.history = {k: v for k, v in data.items() if isinstance(v, dict) and isinstance(v.get("chapters_read"), dict) and isinstance(v.get("title"), str) and isinstance(v.get("total_read", 0), int)} if isinstance(data, dict) else {}
             except Exception:
                 self.history = {}
 
     def save(self):
-        try:
-            with open(READING_HISTORY_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.history, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+        atomic_json_write(READING_HISTORY_FILE, self.history)
+
 
     def mark_as_read(self, manga_title: str, chapter_number: str, source: str):
         """Marque un chapitre comme lu."""
