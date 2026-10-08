@@ -746,7 +746,10 @@ class SearchView(QWidget):
         self.current_vsrc = src_name
         self.current_volume_jobs = self._build_volume_jobs()
 
-        max_main = get_official_main_limit(details.title or (self.current_manga.title if self.current_manga else ""), total_chaps)
+        max_main = get_official_main_limit(
+            details.title or (self.current_manga.title if self.current_manga else ""),
+            total_chaps if raw_status in ("FINISHED", "finished") else None,
+        )
         self.current_max_main = max_main
 
         # Calcul des chapitres principaux vs bonus pour les onglets avec la sécurité max_main
@@ -880,7 +883,7 @@ class SearchView(QWidget):
         remaining = [c for c in self.current_chapters if c.number not in assigned_chaps]
         if remaining:
             max_vol = max(vmap.keys(), default=0)
-            chunk_size = 9
+            chunk_size = config_manager.get("chapters_per_volume", 5)
             for i in range(0, len(remaining), chunk_size):
                 chunk = remaining[i : i + chunk_size]
                 grouped_tomes.append((max_vol + 1 + (i // chunk_size), chunk))

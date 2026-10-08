@@ -161,3 +161,27 @@ def test_source_changes_take_effect_without_restart(qapp, monkeypatch, tmp_path)
     view.deleteLater()
     config_manager.config['mangadex_domain'] = 'https://api.mangadex.org'
     ScraperFactory.reload()
+
+
+def test_ongoing_manga_is_not_truncated_by_old_metadata(qapp, monkeypatch):
+    monkeypatch.setattr(SearchView, '_check_better_sources_worker', lambda *args: None)
+    view = SearchView()
+    manga = Manga('The Beginning After The End', '', 'MangaDex')
+    view.current_manga = manga
+    chapter = Chapter('Chapitre 300', '300', '', manga.title, manga.source)
+    view.display_manga_details((manga, [chapter], '', {}, {'chapters': 245, 'status': 'RELEASING'}))
+    assert view.current_max_main is None
+    assert view.chapters_table.rowCount() == 1
+    spin(qapp, lambda: not active_workers())
+    view.deleteLater()
+
+
+def test_unmapped_volume_groups_follow_configured_size(qapp, monkeypatch):
+    from config import config_manager
+    monkeypatch.setitem(config_manager.config, 'chapters_per_volume', 3)
+    view = SearchView()
+    view.current_vmap = {1: ['1']}
+    view.current_chapters = [Chapter(f'Ch. {i}', str(i), '', 'Test', 'MangaDex') for i in range(1, 9)]
+    jobs = view._build_volume_jobs()
+    assert [len(job.chapters_list) for job in jobs] == [1, 3, 3, 1]
+    view.deleteLater()

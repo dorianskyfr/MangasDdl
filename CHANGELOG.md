@@ -19,8 +19,9 @@
 - Vérification des sources en arrière-plan et suppression des badges « ONLINE » non vérifiés.
 - Données personnelles stockées dans le dossier utilisateur, migration des anciens fichiers et configuration d'exemple sans chemin personnel.
 - Comparaison des versions corrigée pour les versions abrégées et les préversions.
-- Filtrage des chapitres bonus par mots complets et suppression des limites figées pour certaines séries en cours.
-- 28 tests automatisés, versions de dépendances enregistrées et compilation portable avec test de démarrage.
+- Filtrage des chapitres bonus par mots complets et suppression des limites figées pour les séries en cours.
+- Taille des regroupements restants et ouverture automatique du dossier appliquées depuis les paramètres.
+- 30 tests automatisés, versions de dépendances enregistrées et compilation portable avec test de démarrage.
 - Workflow de tests et de compilation Windows / Linux avec archives téléchargeables.
 
 La compilation Linux a été vérifiée localement. La validation Windows dépend du résultat du workflow GitHub. L'accès aux chapitres et l'exactitude des métadonnées externes restent dépendants des sources.

@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QDesktopServices, QColor, QBrush
 
 from models import DownloadJob, DownloadStatus
+from config import config_manager
 from downloader.worker import DownloadTask
 
 
@@ -227,6 +228,8 @@ class DownloadsView(QWidget):
                 btns[1].setEnabled(False)
                 btns[2].setEnabled(True)
         self._update_title()
+        if config_manager.get("auto_open_folder", False):
+            self.open_job_folder(job_id)
 
     def on_job_failed(self, job_id: str, error: str):
         row = self._get_row(job_id)
