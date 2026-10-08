@@ -42,7 +42,13 @@ Thumbs.db
 desktop.ini
 
 # User local configs & downloads
-# config.json
+config.json
 favorites.json
 search_history.json
 reading_history.json
+
+.pytest_cache/
+metadata_cache.json
+*.spec
+
+.test-data/

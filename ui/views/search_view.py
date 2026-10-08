@@ -1,5 +1,8 @@
 from __future__ import annotations
+from ui.tasks import ManagedThread
+
 import uuid
+import re
 from typing import Optional, List, Dict, Tuple, Any
 import httpx
 from PySide6.QtWidgets import (
@@ -14,14 +17,15 @@ from PySide6.QtGui import QPixmap, QImage, QFont, QColor
 from models import Manga, Chapter, DownloadJob
 from scrapers.factory import ScraperFactory
 from config import config_manager
+from ui.icons import icon
 from downloader.mangadex_volume import MultiSourceVolumeProvider, MangaDexVolumeProvider
 from search_history import search_history
 from reading_history import reading_history
 
 
 KNOWN_MAIN_CHAPTERS = {
-    "the beginning after the end": 245,
-    "tbate": 245,
+
+
     "naruto": 700,
     "bleach": 686,
     "demon slayer": 205,
@@ -33,7 +37,7 @@ KNOWN_MAIN_CHAPTERS = {
     "dragon ball": 519,
     "fairy tail": 545,
     "fairy-tail": 545,
-    "hunter x hunter": 400,
+
     "haikyuu": 402,
     "haikyu": 402,
     "slam dunk": 276,
@@ -42,8 +46,6 @@ KNOWN_MAIN_CHAPTERS = {
 
 def get_official_main_limit(manga_title: str, total_meta: Optional[int] = None) -> Optional[int]:
     t_clean = manga_title.lower().strip()
-    if "tbate" in t_clean or ("begin" in t_clean and "after" in t_clean):
-        return 245
     for key, count in KNOWN_MAIN_CHAPTERS.items():
         if key in t_clean:
             return count
@@ -73,14 +75,15 @@ def is_bonus_chapter(c: Chapter, max_main: Optional[int] = None) -> bool:
         "sidestory", "side story", "gaiden", "ex", "sp", "prologue", "epilogue",
         "épilogue", "one-shot", "oneshot", "side"
     ]
-    if any(k in title_lower for k in bonus_keywords) or any(k in num_str.lower() for k in bonus_keywords):
+    pattern = r"(?<!\w)(?:" + "|".join(re.escape(k) for k in bonus_keywords) + r")(?!\w)"
+    if re.search(pattern, title_lower) or re.search(pattern, num_str.lower()):
         return True
 
     return False
 
 
-class FetchWorker(QThread):
-    finished = Signal(object)
+class FetchWorker(ManagedThread):
+    result = Signal(object)
     error = Signal(str)
 
     def __init__(self, func, *args, **kwargs):
@@ -92,12 +95,14 @@ class FetchWorker(QThread):
     def run(self):
         try:
             res = self.func(*self.args, **self.kwargs)
-            self.finished.emit(res)
+            if not self.isInterruptionRequested():
+                self.result.emit(res)
         except Exception as e:
-            self.error.emit(str(e))
+            if not self.isInterruptionRequested():
+                self.error.emit(str(e))
 
 
-class ImageLoaderWorker(QThread):
+class ImageLoaderWorker(ManagedThread):
     loaded = Signal(str, bytes)
 
     def __init__(self, url: str):
@@ -113,7 +118,7 @@ class ImageLoaderWorker(QThread):
             }
             with httpx.Client(headers=headers, timeout=15.0, follow_redirects=True) as client:
                 r = client.get(self.url)
-                if r.status_code == 200 and len(r.content) > 500:
+                if not self.isInterruptionRequested() and r.status_code == 200 and len(r.content) > 500:
                     self.loaded.emit(self.url, r.content)
         except Exception:
             pass
@@ -213,7 +218,22 @@ class SearchView(QWidget):
     def init_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(14)
+        main_layout.setSpacing(18)
+        hero = QFrame()
+        hero.setObjectName("Hero")
+        hero_layout = QVBoxLayout(hero)
+        hero_layout.setContentsMargins(24, 20, 24, 20)
+        eyebrow = QLabel("MANGASDDL  /  EXPLORER")
+        eyebrow.setObjectName("Eyebrow")
+        hero_layout.addWidget(eyebrow)
+        heading = QLabel("Une bibliothèque sans limites.")
+        heading.setObjectName("PageTitle")
+        hero_layout.addWidget(heading)
+        caption = QLabel("Recherchez vos mangas, retrouvez vos favoris et emportez vos chapitres.")
+        caption.setObjectName("Muted")
+        caption.setWordWrap(True)
+        hero_layout.addWidget(caption)
+        main_layout.addWidget(hero)
 
         # 1. Barre de recherche et sélecteur de source
         search_bar_layout = QHBoxLayout()
@@ -221,14 +241,15 @@ class SearchView(QWidget):
 
         self.source_combo = QComboBox()
         self.source_combo.addItems(["🌐 Toutes les sources"] + ScraperFactory.list_sources())
-        self.source_combo.setFixedWidth(160)
+        self.source_combo.setFixedWidth(190)
         search_bar_layout.addWidget(self.source_combo)
 
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔎 Rechercher un manga (ex: One Piece, Naruto, Solo Leveling)...")
+        self.search_input.setPlaceholderText("Rechercher un titre, par exemple One Piece…")
+        self.search_input.setClearButtonEnabled(True)
         self.search_input.returnPressed.connect(self.start_search)
-        
+
         # Search history completer
         self._completer_model = QStringListModel(search_history.get_suggestions())
         self._completer = QCompleter(self._completer_model, self)
@@ -269,7 +290,10 @@ class SearchView(QWidget):
         left_layout.addWidget(results_label)
 
         self.results_list = QListWidget()
+        self.results_list.setWordWrap(True)
+        self.results_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.results_list.itemClicked.connect(self.on_manga_selected)
+        self.results_list.addItem("Vos résultats apparaîtront ici.")
         left_layout.addWidget(self.results_list)
 
         splitter.addWidget(left_panel)
@@ -289,8 +313,8 @@ class SearchView(QWidget):
         self.cover_label.setFixedSize(120, 165)
         self.cover_label.setStyleSheet("background-color: #111420; border-radius: 8px; border: 1px solid #263147;")
         self.cover_label.setAlignment(Qt.AlignCenter)
-        self.cover_label.setText("📖")
-        manga_header_layout.addWidget(self.cover_label)
+        self.cover_label.setPixmap(icon("book", size=48).pixmap(48, 48))
+        manga_header_layout.addWidget(self.cover_label, alignment=Qt.AlignTop)
 
         manga_info_layout = QVBoxLayout()
         manga_info_layout.setSpacing(6)
@@ -320,13 +344,13 @@ class SearchView(QWidget):
         # Bouton Favoris
         self.fav_btn = QPushButton("⭐ Ajouter aux favoris")
         self.fav_btn.setObjectName("SecondaryButton")
-        self.fav_btn.setFixedWidth(170)
+        self.fav_btn.setFixedWidth(200)
         self.fav_btn.clicked.connect(self.toggle_favorite_current_manga)
-        manga_info_layout.addWidget(self.fav_btn)
+        manga_info_layout.addWidget(self.fav_btn, alignment=Qt.AlignLeft)
 
         manga_info_layout.addStretch()
 
-        manga_header_layout.addLayout(manga_info_layout)
+        manga_header_layout.addLayout(manga_info_layout, 1)
         right_layout.addLayout(manga_header_layout)
 
 
@@ -409,13 +433,13 @@ class SearchView(QWidget):
         self.select_all_cb.stateChanged.connect(self.toggle_select_all)
         chap_controls_row1.addWidget(self.select_all_cb)
 
-        self.btn_select_range = QPushButton("🔢 Sélectionner plage")
+        self.btn_select_range = QPushButton("Sélectionner une plage")
         self.btn_select_range.setObjectName("SecondaryButton")
         self.btn_select_range.setFixedHeight(30)
         self.btn_select_range.clicked.connect(self.open_select_range_dialog)
         chap_controls_row1.addWidget(self.btn_select_range)
 
-        self.group_tomes_cb = QCheckBox("Regrouper en Tomes Officiels")
+        self.group_tomes_cb = QCheckBox("Tomes officiels")
         self.group_tomes_cb.setChecked(config_manager.get("group_by_volume", False))
         self.group_tomes_cb.stateChanged.connect(self.on_tomes_mode_toggled)
         chap_controls_row1.addWidget(self.group_tomes_cb)
@@ -493,9 +517,9 @@ class SearchView(QWidget):
     def start_search(self):
         query = self.search_input.text().strip()
         source = self.source_combo.currentText()
-        if not query:
+        if not query or (hasattr(self, "search_worker") and self.search_worker.isRunning()):
             return
-            
+
         search_history.add(query)
 
         self.loading_bar.show()
@@ -510,7 +534,7 @@ class SearchView(QWidget):
             self.search_worker = FetchWorker(scraper.search, query)
             self.log_signal.emit("INFO", f"Recherche '{query}' sur {source}...")
 
-        self.search_worker.finished.connect(self.display_search_results)
+        self.search_worker.result.connect(self.display_search_results)
         self.search_worker.error.connect(self.on_search_error)
         self.search_worker.start()
 
@@ -542,7 +566,17 @@ class SearchView(QWidget):
         if not manga:
             return
 
+        self.select_manga(manga)
+
+    def select_manga(self, manga):
         self.current_manga = manga
+        self.current_chapters = []
+        self.current_vmap = None
+        self.current_volume_jobs = []
+        self.cross_source_card.hide()
+        if getattr(self, "cross_worker", None):
+            self.cross_worker.requestInterruption()
+            self.cross_worker = None
         self.manga_title_label.setText(manga.title)
         self.manga_synopsis_label.setText("Chargement des détails et des chapitres...")
         self.manga_genres_label.setText("Genres: -")
@@ -558,7 +592,8 @@ class SearchView(QWidget):
 
         self.tome_status_lbl.setText("⏳ Vérification des tomes...")
         self.tome_status_lbl.setStyleSheet("color: #fbbf24; font-size: 11px; font-weight: bold; margin-right: 8px;")
-        self.cover_label.setText("Chargement...")
+        self.cover_label.clear()
+        self.cover_label.setText("Chargement…")
         self.chapters_table.setRowCount(0)
         self.download_btn.setEnabled(False)
 
@@ -571,24 +606,24 @@ class SearchView(QWidget):
 
         # Charger les détails et les chapitres
         scraper = ScraperFactory.get_scraper(manga.source)
-        if hasattr(self, "details_worker") and self.details_worker.isRunning():
-            try:
-                self.details_worker.wait(200)  # Attente non-bloquante au lieu de terminate()
-            except Exception:
-                pass
-
-        self.details_worker = FetchWorker(self._load_manga_full_details, scraper, manga.url)
-        self.details_worker.finished.connect(self.display_manga_details)
+        if getattr(self, "details_worker", None):
+            self.details_worker.requestInterruption()
+        self.details_worker = FetchWorker(self._load_manga_full_details, scraper, manga)
+        self.details_worker.result.connect(self.display_manga_details)
         self.details_worker.error.connect(self.on_details_error)
         self.details_worker.start()
 
     def on_details_error(self, err_msg: str):
+        if self.sender() and self.sender() is not self.details_worker:
+            return
         self.log_signal.emit("ERROR", f"Erreur lors du chargement des détails: {err_msg}")
         self.manga_synopsis_label.setText(f"❌ Erreur de chargement : {err_msg}")
         self.tome_status_lbl.setText("🔴 Erreur de chargement")
         self.tome_status_lbl.setStyleSheet("color: #f87171; font-size: 11px; font-weight: bold; margin-right: 8px;")
 
     def display_cover(self, url: str, data: bytes):
+        if self.sender() and self.sender() is not self.img_worker:
+            return
         pixmap = QPixmap()
         loaded = pixmap.loadFromData(data)
         if not loaded:
@@ -607,14 +642,15 @@ class SearchView(QWidget):
                 pixmap.scaled(120, 165, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             )
         else:
-            self.cover_label.setText("📖")
+            self.cover_label.setPixmap(icon("book", size=48).pixmap(48, 48))
 
-    def _load_manga_full_details(self, scraper, manga_url):
+    def _load_manga_full_details(self, scraper, manga):
+        manga_url = manga.url
         details = scraper.get_manga_details(manga_url)
         chapters = scraper.get_chapters(manga_url)
-        title_for_vmap = details.title or (self.current_manga.title if self.current_manga else manga_url.rstrip("/").split("/")[-1].replace("-", " "))
-        alt_titles = getattr(details, "alt_titles", []) or getattr(self.current_manga, "alt_titles", [])
-        
+        title_for_vmap = details.title or (manga.title or manga_url.rstrip("/").split("/")[-1].replace("-", " "))
+        alt_titles = getattr(details, "alt_titles", []) or getattr(manga, "alt_titles", [])
+
         max_main = get_official_main_limit(title_for_vmap)
         main_chapters = [c for c in chapters if not is_bonus_chapter(c, max_main)]
         c_nums = [c.number for c in main_chapters] if main_chapters else [c.number for c in chapters]
@@ -633,7 +669,7 @@ class SearchView(QWidget):
             details.genres = manga_meta["genres"]
         if not details.cover_url and manga_meta.get("cover_url"):
             details.cover_url = manga_meta["cover_url"]
-        elif not details.cover_url and (not self.current_manga or not self.current_manga.cover_url):
+        elif not details.cover_url and not manga.cover_url:
             from downloader.volume_cover_provider import VolumeCoverProvider
             fallback_cover = VolumeCoverProvider.get_main_cover_url(title_for_vmap)
             if fallback_cover:
@@ -642,6 +678,8 @@ class SearchView(QWidget):
         return details, chapters, src_name, vmap, manga_meta
 
     def display_manga_details(self, data):
+        if self.sender() and self.sender() is not self.details_worker:
+            return
         details, chapters, src_name, vmap, manga_meta = data
         self.current_manga_meta = manga_meta or {}
         self.current_details = details
@@ -681,7 +719,7 @@ class SearchView(QWidget):
 
         if total_vols:
             status_parts.append(f"📚 {total_vols} tome(s)")
-        
+
         last_num = chapters[-1].number if chapters else None
         if last_num and (last_num.isdigit() or re.match(r'^\d+$', last_num)):
             status_parts.append(f"📖 Chapitres 1 à {last_num}")
@@ -708,7 +746,10 @@ class SearchView(QWidget):
         self.current_vsrc = src_name
         self.current_volume_jobs = self._build_volume_jobs()
 
-        max_main = get_official_main_limit(details.title or (self.current_manga.title if self.current_manga else ""), total_chaps)
+        max_main = get_official_main_limit(
+            details.title or (self.current_manga.title if self.current_manga else ""),
+            total_chaps if raw_status in ("FINISHED", "finished") else None,
+        )
         self.current_max_main = max_main
 
         # Calcul des chapitres principaux vs bonus pour les onglets avec la sécurité max_main
@@ -751,14 +792,8 @@ class SearchView(QWidget):
         current_src = self.current_manga.source if self.current_manga else self.source_combo.currentText()
         title_for_check = details.title or (self.current_manga.title if self.current_manga else "")
 
-        if hasattr(self, "cross_worker") and self.cross_worker.isRunning():
-            try:
-                self.cross_worker.wait(100)
-            except Exception:
-                pass
-
         self.cross_worker = FetchWorker(self._check_better_sources_worker, title_for_check, current_src, len(chapters))
-        self.cross_worker.finished.connect(self.on_better_source_found)
+        self.cross_worker.result.connect(self.on_better_source_found)
         self.cross_worker.start()
 
     def _check_better_sources_worker(self, manga_title: str, current_source: str, current_chap_count: int):
@@ -778,6 +813,8 @@ class SearchView(QWidget):
         return None
 
     def on_better_source_found(self, data):
+        if self.sender() and self.sender() is not self.cross_worker:
+            return
         if data:
             better_src, better_count, target_title = data
             current_count = len(self.current_chapters)
@@ -846,7 +883,7 @@ class SearchView(QWidget):
         remaining = [c for c in self.current_chapters if c.number not in assigned_chaps]
         if remaining:
             max_vol = max(vmap.keys(), default=0)
-            chunk_size = 9
+            chunk_size = config_manager.get("chapters_per_volume", 5)
             for i in range(0, len(remaining), chunk_size):
                 chunk = remaining[i : i + chunk_size]
                 grouped_tomes.append((max_vol + 1 + (i // chunk_size), chunk))
@@ -976,16 +1013,15 @@ class SearchView(QWidget):
             scraper = ScraperFactory.get_scraper(chapter.source)
             dialog = ReaderDialog(chapter, scraper, self)
             dialog.exec()
-            # Marquer le chapitre comme lu après fermeture du lecteur
-            reading_history.mark_as_read(
-                chapter.manga_title, chapter.number, chapter.source
-            )
+            if dialog.completed_reading:
+                reading_history.mark_as_read(chapter.manga_title, chapter.number, chapter.source)
             # Rafraîchir le tableau pour mettre à jour l'indicateur
             if self.group_tomes_cb.isChecked() and self.current_vmap:
                 self.render_volumes_table()
             else:
                 self.render_chapters_table()
-            self.log_signal.emit("INFO", f"Chapitre {chapter.number} marqué comme lu.")
+            if dialog.completed_reading:
+                self.log_signal.emit("INFO", f"Chapitre {chapter.number} marqué comme lu.")
         except Exception as e:
             QMessageBox.warning(self, "Erreur du lecteur", f"Impossible d'ouvrir le chapitre : {e}")
 

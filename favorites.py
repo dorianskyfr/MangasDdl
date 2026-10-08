@@ -1,9 +1,10 @@
+from storage import user_file, atomic_json_write
 import json
 from pathlib import Path
 from typing import List, Dict
 from models import Manga
 
-FAVORITES_FILE = Path("favorites.json")
+FAVORITES_FILE = user_file("favorites.json")
 
 class FavoritesManager:
     """Gestionnaire des mangas favoris / bibliothèque de l'utilisateur."""
@@ -17,17 +18,14 @@ class FavoritesManager:
             try:
                 with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.favorites = data
+                    self.favorites = {k: v for k, v in data.items() if isinstance(v, dict) and all(isinstance(v.get(f), str) for f in ("title", "url", "source"))} if isinstance(data, dict) else {}
             except Exception as e:
                 print(f"[Favorites] Erreur chargement favoris: {e}")
                 self.favorites = {}
 
     def save(self):
-        try:
-            with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.favorites, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"[Favorites] Erreur sauvegarde favoris: {e}")
+        atomic_json_write(FAVORITES_FILE, self.favorites)
+
 
     def add_favorite(self, manga: Manga):
         key = manga.title.strip().lower()

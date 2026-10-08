@@ -1,31 +1,22 @@
 import sys
-import os
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+from app_info import APP_NAME, APP_VERSION
 from ui.main_window import MainWindow
-from ui.widgets.splash_screen import SplashScreen
+
 
 def main():
-    # Créer l'application Qt
     app = QApplication(sys.argv)
-    app.setApplicationName("Antigravity Manga Scraper & Downloader")
-    app.setOrganizationName("Antigravity")
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(APP_VERSION)
+    app.setOrganizationName(APP_NAME)
+    smoke_test = "--smoke-test" in sys.argv
+    window = MainWindow(check_updates=not smoke_test)
+    window.show()
+    if smoke_test:
+        QTimer.singleShot(300, app.quit)
+    return app.exec()
 
-    # Lancer le splash screen
-    splash = SplashScreen()
-    splash.show()
-    splash.start()
-
-    # Préparer la fenêtre principale
-    window = MainWindow()
-
-    def on_splash_finished():
-        window.show()
-        splash.close()
-
-    splash.finished.connect(on_splash_finished)
-
-    # Exécuter la boucle d'événements
-    sys.exit(app.exec())
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

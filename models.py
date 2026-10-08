@@ -8,6 +8,7 @@ class DownloadStatus(Enum):
     COMPLETED = "Terminé"
     FAILED = "Échec"
     PAUSED = "En pause"
+    CANCELLED = "Annulé"
 
 @dataclass
 class Manga:
@@ -52,3 +53,21 @@ class DownloadJob:
     is_volume: bool = False
     volume_number: int = 0
     chapters_list: List[Chapter] = field(default_factory=list)
+
+
+def matching_manga(results, title):
+    """Cross-source fallback must identify the series before reusing a chapter."""
+    import unicodedata
+    import re
+
+    def normalize(value):
+        value = unicodedata.normalize("NFKD", value).casefold()
+        return re.sub(r"[^a-z0-9]", "", value)
+
+    target = normalize(title)
+    if not target:
+        return None
+    for manga in results:
+        if any(normalize(name) == target for name in [manga.title, *manga.alt_titles]):
+            return manga
+    return None

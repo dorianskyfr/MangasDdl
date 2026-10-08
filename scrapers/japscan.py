@@ -38,7 +38,7 @@ class JapScanScraper(BaseScraper):
         return self._domain
 
     def _get_client(self) -> httpx.Client:
-        return httpx.Client(headers=self.headers, follow_redirects=True, timeout=12.0, verify=False)
+        return httpx.Client(headers=self.headers, follow_redirects=True, timeout=12.0)
 
 
     # ──────────────────────────────────────────────────────────────

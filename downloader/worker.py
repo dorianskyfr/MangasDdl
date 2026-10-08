@@ -1,4 +1,7 @@
 from __future__ import annotations
+from ui.tasks import ManagedThread
+from storage import data_dir
+
 import io
 import os
 import re
@@ -16,13 +19,14 @@ from PySide6.QtCore import QObject, QThread, Signal
 from config import config_manager
 from downloader.exporter import Exporter
 from downloader.volume_cover_provider import VolumeCoverProvider
-from models import Chapter, DownloadJob, DownloadStatus, Page
+from models import Chapter, DownloadJob, DownloadStatus, Page, matching_manga
 from scrapers.factory import ScraperFactory
 
 
 def _dbg(msg: str):
     try:
-        with open("download_debug.log", "a", encoding="utf-8") as f:
+        data_dir().mkdir(parents=True, exist_ok=True)
+        with open(data_dir() / "download_debug.log", "a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
     except Exception:
         pass
@@ -36,7 +40,7 @@ class WorkerSignals(QObject):
     log_message = Signal(str, str)             # level, message
 
 
-class DownloadWorker(QThread):
+class DownloadWorker(ManagedThread):
     job_started = Signal(str)
     job_progress = Signal(str, int, int, str)
     job_completed = Signal(str, str)
@@ -52,15 +56,22 @@ class DownloadWorker(QThread):
 
     def pause(self):
         self._is_paused = True
+        self.job.status = DownloadStatus.PAUSED
         _dbg(f"Mise en pause demandée pour le job {self.job.job_id}")
 
     def resume(self):
         self._is_paused = False
+        self.job.status = DownloadStatus.DOWNLOADING
         _dbg(f"Reprise demandée pour le job {self.job.job_id}")
 
     def cancel(self):
         self._is_cancelled = True
+        self.job.status = DownloadStatus.CANCELLED
         _dbg(f"Annulation demandée pour le job {self.job.job_id}")
+
+    def requestInterruption(self):
+        self.cancel()
+        super().requestInterruption()
 
     def run(self):
         if self._is_cancelled:
@@ -88,12 +99,16 @@ class DownloadWorker(QThread):
         safe_manga = "".join(
             c for c in self.job.manga_title
             if c.isalnum() or c in (' ', '_', '-', '.')
-        ).strip() or "Manga"
+        ).strip(" .")[:120] or "Manga"
 
-        folder_name = f"Tome_{self.job.volume_number:02d}" if is_vol else f"Chapitre_{self.job.chapter_number}"
+        safe_chapter = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(self.job.chapter_number)).strip(" .")[:100] or "1"
+        folder_name = f"Tome_{self.job.volume_number:02d}" if is_vol else f"Chapitre_{safe_chapter}"
         base_dest = Path(config_manager.get("download_dir", str(Path.home() / "Downloads" / "MangaDownloader")))
+        if safe_manga.split(".")[0].upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}:
+            safe_manga = "_" + safe_manga
         manga_dir = base_dest / safe_manga
-        dest_dir = manga_dir / folder_name
+        source_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", self.job.source)
+        dest_dir = manga_dir / f"{folder_name}_{source_slug}"
 
         try:
             dest_dir.mkdir(parents=True, exist_ok=True)
@@ -148,6 +163,8 @@ class DownloadWorker(QThread):
                     search_queries.append(cleaned_title)
 
                 for alt_src in fallback_sources:
+                    if self._is_cancelled:
+                        return []
                     if alt_src == self.job.source:
                         continue
                     try:
@@ -158,8 +175,9 @@ class DownloadWorker(QThread):
                             if search_res:
                                 break
 
-                        if search_res:
-                            alt_chaps = alt_scraper.get_chapters(search_res[0].url)
+                        candidate = matching_manga(search_res, self.job.manga_title)
+                        if candidate:
+                            alt_chaps = alt_scraper.get_chapters(candidate.url)
                             matched = next((c for c in alt_chaps if _clean_match_num(c.number, c_num)), None)
                             if matched:
                                 alt_pages = alt_scraper.get_chapter_pages(matched.url)
@@ -186,7 +204,11 @@ class DownloadWorker(QThread):
                     tasks_to_download.append(("c000_p000_cover", Page(number=0, url=cover_url, referer=None)))
 
                 for c_idx, chap in enumerate(chaps, 1):
+                    if self._is_cancelled:
+                        raise ValueError("Téléchargement annulé.")
                     pages = fetch_pages_safe(chap.number, chap.url)
+                    if not pages:
+                        raise ValueError(f"Aucune page pour le chapitre {chap.number}. Tome conservé pour reprise.")
                     _dbg(f"  Chapitre {chap.number}: {len(pages)} pages")
                     for p in pages:
                         fname = f"c{c_idx:03d}_p{p.number:03d}"
@@ -279,8 +301,13 @@ class DownloadWorker(QThread):
 
                 file_path = dest_dir / f"{fname}.{ext}"
 
-                if file_path.exists() and file_path.stat().st_size > 2048:
-                    return True, file_path.stat().st_size
+                if file_path.exists():
+                    try:
+                        with Image.open(file_path) as image:
+                            image.verify()
+                        return True, file_path.stat().st_size
+                    except Exception:
+                        pass
 
                 headers = {
                     **base_headers,
@@ -296,15 +323,19 @@ class DownloadWorker(QThread):
                     try:
                         with httpx.Client(headers=headers, timeout=30.0, follow_redirects=True) as client:
                             resp = client.get(page.url)
-                            if resp.status_code == 200 and len(resp.content) > 1024:
+                            if resp.status_code == 200 and resp.content:
                                 content = resp.content
+                                with Image.open(io.BytesIO(content)) as image:
+                                    image.verify()
                                 # Watermark sur la couverture du tome
                                 if fname == "c000_p000_cover" and is_vol and self.job.volume_number:
                                     content = _apply_volume_badge(content, self.job.volume_number)
                                     ext = "jpg"
                                     file_path = dest_dir / f"{fname}.{ext}"
 
-                                file_path.write_bytes(content)
+                                temporary = file_path.with_suffix(file_path.suffix + ".part")
+                                temporary.write_bytes(content)
+                                temporary.replace(file_path)
                                 return True, len(content)
                             elif resp.status_code == 404:
                                 return False, 0
@@ -324,9 +355,10 @@ class DownloadWorker(QThread):
                         success, size = future.result()
                         if success:
                             total_bytes += size
-                        else:
+                        elif futures[future][0] != "c000_p000_cover":
                             fail_count += 1
-                        self.job.downloaded_pages += 1
+                        if success:
+                            self.job.downloaded_pages += 1
 
                         elapsed = max(time.time() - start_time, 0.001)
                         speed_kbs = (total_bytes / 1024) / elapsed
@@ -343,13 +375,15 @@ class DownloadWorker(QThread):
                         )
                     except Exception:
                         fail_count += 1
-                        self.job.downloaded_pages += 1
 
             if self._is_cancelled:
-                self.job.status = DownloadStatus.FAILED
+                self.job.status = DownloadStatus.CANCELLED
                 self.job.error_message = "Annulé"
                 self.signals.job_failed.emit(self.job.job_id, "Téléchargement annulé.")
                 return
+
+            if fail_count:
+                raise ValueError(f"{fail_count} page(s) manquante(s). Relancez pour reprendre les pages restantes.")
 
             valid_images = (
                 list(dest_dir.glob("*.jpg")) + list(dest_dir.glob("*.jpeg")) +
@@ -378,9 +412,9 @@ class DownloadWorker(QThread):
             final_output_path = str(dest_dir)
 
             if is_vol:
-                out_name = f"{safe_manga} - Tome {self.job.volume_number:02d} ({self.job.chapter_number})"
+                out_name = f"{safe_manga} - Tome {self.job.volume_number:02d} ({safe_chapter})"
             else:
-                out_name = f"{safe_manga} - Chapitre_{self.job.chapter_number}"
+                out_name = f"{safe_manga} - Chapitre_{safe_chapter}"
 
             if fmt == "CBZ":
                 cbz_path = manga_dir / f"{out_name}.cbz"
@@ -419,6 +453,12 @@ class DownloadWorker(QThread):
                     except Exception as e:
                         _dbg(f"Erreur nettoyage dossier images: {e}")
 
+            if fmt in ("CBZ", "PDF", "EPUB") and final_output_path == str(dest_dir):
+                raise ValueError(f"Échec de l’export {fmt}. Les images sont conservées pour reprise.")
+            if self._is_cancelled:
+                self._fail("Téléchargement annulé.")
+                return
+
             self.job.status = DownloadStatus.COMPLETED
             self.job.progress = 100.0
             self.job.save_path = final_output_path
@@ -435,7 +475,7 @@ class DownloadWorker(QThread):
             self._fail(str(e))
 
     def _fail(self, msg: str):
-        self.job.status = DownloadStatus.FAILED
+        self.job.status = DownloadStatus.CANCELLED if self._is_cancelled else DownloadStatus.FAILED
         self.job.error_message = msg
         self.signals.job_failed.emit(self.job.job_id, msg)
         self.signals.log_message.emit(

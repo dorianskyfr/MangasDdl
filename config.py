@@ -1,8 +1,9 @@
 import json
-import os
+import logging
 from pathlib import Path
-
-APP_VERSION = "0.1"
+from urllib.parse import urlparse
+from app_info import APP_VERSION
+from storage import user_file, atomic_json_write
 
 DEFAULT_DOWNLOAD_DIR = str(Path.home() / "Downloads" / "MangaDownloader")
 
@@ -25,64 +26,79 @@ DEFAULT_CONFIG = {
 
 
 class ConfigManager:
-    def __init__(self, config_file: str = "config.json"):
-        self.config_path = Path(config_file)
+    def __init__(self, config_file=None):
+        self.config_path = Path(config_file) if config_file else user_file("config.json")
         self.config = DEFAULT_CONFIG.copy()
         self.load()
-        
-        # Appliquer le thème au démarrage
         from ui.theme import theme_manager
-        theme = self.get("theme", "dark")
-        theme_manager.set_theme(theme)
+        theme_manager.set_theme(self.get("theme"))
+
+    @staticmethod
+    def validate(values):
+        config = DEFAULT_CONFIG.copy()
+        config.update(values)
+        for name, lo, hi in (("max_concurrent_threads", 1, 16), ("chapters_per_volume", 1, 100)):
+            value = config[name]
+            if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+                raise ValueError(f"Valeur invalide pour {name} ({lo} à {hi}).")
+        if config["theme"] not in ("dark", "light"):
+            raise ValueError("Thème inconnu.")
+        if config["export_format"] not in ("Images", "CBZ", "PDF", "EPUB"):
+            raise ValueError("Format d'export inconnu.")
+        if not isinstance(config["download_dir"], str) or not config["download_dir"].strip():
+            raise ValueError("Choisissez un dossier de téléchargement.")
+        config["download_dir"] = str(Path(config["download_dir"]).expanduser().resolve())
+        for key in DEFAULT_CONFIG:
+            if key.endswith("_domain"):
+                url = config[key]
+                parsed = urlparse(url) if isinstance(url, str) else None
+                if not parsed or parsed.scheme not in ("https", "http") or not parsed.hostname:
+                    raise ValueError(f"Adresse invalide pour {key} : utilisez une URL HTTP ou HTTPS.")
+                config[key] = url.rstrip("/")
+        return config
 
     def load(self):
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    # Migrations automatiques vers les domaines actifs
-                    if data.get("anime_sama_domain") == "https://anime-sama.fr":
-                        data["anime_sama_domain"] = "https://anime-sama.to"
-                    if data.get("crunchyscan_domain") in ["https://crunchyscan.fr", "https://crunchyscan.fr/"]:
-                        data["crunchyscan_domain"] = "https://sushiscan.fr"
-                    if data.get("japscan_domain") in ["https://japscan.co", "https://japscan.ws", "https://www.japscan.co"]:
-                        data["japscan_domain"] = "https://www.japscan.foo"
-                    if data.get("scan_vf_domain") in ["https://scan-vf.co", "https://www.scan-vf.co", "https://scan-vf.net"]:
-                        data["scan_vf_domain"] = "https://www.scan-vf.net"
-                    # Migration du thème si absent
-                    if "theme" not in data:
-                        data["theme"] = "dark"
-                    if "auto_open_folder" not in data:
-                        data["auto_open_folder"] = False
-                    # Migration des nouveaux domaines si absents
-                    if "japscan_domain" not in data:
-                        data["japscan_domain"] = "https://www.japscan.foo"
-                    if "unekoscans_domain" not in data:
-                        data["unekoscans_domain"] = "https://unekoscans.fr"
-                    if "scan_vf_domain" not in data:
-                        data["scan_vf_domain"] = "https://www.scan-vf.net"
-
-                    if "mangadex_domain" not in data:
-                        data["mangadex_domain"] = "https://api.mangadex.org"
-                    self.config.update(data)
-            except Exception as e:
-                print(f"Erreur lors du chargement de la config: {e}")
-        else:
-            self.save()
+        if not self.config_path.exists():
+            return
+        try:
+            data = json.loads(self.config_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("La configuration doit être un objet JSON.")
+            # Old releases shipped a developer's absolute Windows path.
+            if data.get("download_dir") in ("C:/Users/gcdor/Documents/Mangas scraper", "C:/Users/doria/Downloads/MangaDownloader"):
+                data["download_dir"] = DEFAULT_DOWNLOAD_DIR
+            migrations = {
+                "anime_sama_domain": ("https://anime-sama.fr",),
+                "crunchyscan_domain": ("https://crunchyscan.fr",),
+                "japscan_domain": ("https://japscan.co", "https://japscan.ws", "https://www.japscan.co"),
+                "scan_vf_domain": ("https://scan-vf.co", "https://www.scan-vf.co", "https://scan-vf.net"),
+            }
+            for key, old in migrations.items():
+                if str(data.get(key, "")).rstrip("/") in old:
+                    data[key] = DEFAULT_CONFIG[key]
+            # Recover valid preferences even when one field is malformed.
+            for key, value in data.items():
+                try:
+                    self.config = self.validate({**self.config, key: value})
+                except (ValueError, TypeError):
+                    logging.warning("Configuration ignorée : %s", key)
+        except (OSError, ValueError, TypeError):
+            logging.warning("Configuration illisible : %s", self.config_path)
 
     def save(self):
-        try:
-            os.makedirs(self.config["download_dir"], exist_ok=True)
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            print(f"Erreur lors de la sauvegarde de la config: {e}")
+        atomic_json_write(self.config_path, self.config)
 
-    def get(self, key: str, default=None):
+    def get(self, key, default=None):
         return self.config.get(key, default)
 
-    def set(self, key: str, value):
-        self.config[key] = value
-        self.save()
+    def update(self, values):
+        candidate = self.validate({**self.config, **values})
+        Path(candidate["download_dir"]).mkdir(parents=True, exist_ok=True)
+        atomic_json_write(self.config_path, candidate)
+        self.config = candidate
+
+    def set(self, key, value):
+        self.update({key: value})
+
 
 config_manager = ConfigManager()

@@ -137,13 +137,14 @@ class FavoriteCard(QFrame):
 
 class LibraryView(QWidget):
     """Vue de la bibliothèque de favoris avec recherche, tri et suivi de lecture."""
-    
+
     open_manga_requested = Signal(object)
     log_signal = Signal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._all_favs = []
+        self._cards = []
         self.init_ui()
 
     def init_ui(self):
@@ -222,10 +223,11 @@ class LibraryView(QWidget):
 
     def _apply_filter_and_sort(self):
         # Vider la grille
-        for i in reversed(range(self.grid_layout.count())):
-            w = self.grid_layout.itemAt(i).widget()
-            if w:
-                w.deleteLater()
+        self._cards = []
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
         filter_text = self.filter_input.text().strip().lower() if hasattr(self, 'filter_input') else ""
         favs = [m for m in self._all_favs if filter_text in m.title.lower()]
@@ -255,14 +257,22 @@ class LibraryView(QWidget):
             self.grid_layout.addWidget(empty_lbl, 0, 0)
             return
 
-        cols = 5
+        cols = max(1, self.width() // 210)
         for idx, manga in enumerate(favs):
             row = idx // cols
             col = idx % cols
             card = FavoriteCard(manga)
             card.open_requested.connect(self.open_manga)
             card.remove_requested.connect(self.remove_favorite)
+            self._cards.append(card)
             self.grid_layout.addWidget(card, row, col)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        cols = max(1, event.size().width() // 210)
+        for idx, card in enumerate(self._cards):
+            self.grid_layout.removeWidget(card)
+            self.grid_layout.addWidget(card, idx // cols, idx % cols)
 
     def open_manga(self, manga: Manga):
         self.open_manga_requested.emit(manga)

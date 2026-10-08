@@ -5,12 +5,13 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal
 from config import config_manager
+from ui.views.search_view import FetchWorker
 from ui.theme import theme_manager
 
 
 class SettingsView(QWidget):
     """Vue des parametres de l'application avec categories."""
-    
+
     log_signal = Signal(str, str)
     theme_changed = Signal(str)
     check_updates_requested = Signal()
@@ -25,14 +26,14 @@ class SettingsView(QWidget):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.NoFrame)
-        
+
         container = QWidget()
         main_layout = QVBoxLayout(container)
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(20)
-        
+
         scroll_area.setWidget(container)
-        
+
         # Layout principal
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -82,7 +83,7 @@ class SettingsView(QWidget):
         """Crée le groupe Apparence."""
         group = QGroupBox("Apparence")
         group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; border: none; padding-top: 12px; margin-top: 16px; } QGroupBox::title { subcontrol-origin: margin; left: 0px; padding: 0 4px; color: #38bdf8; }"  )
-        
+
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(12)
 
@@ -99,7 +100,7 @@ class SettingsView(QWidget):
         self.theme_combo.currentTextChanged.connect(self.on_theme_selected)
         self.theme_combo.setFixedWidth(140)
         theme_layout.addWidget(self.theme_combo)
-        
+
         group_layout.addLayout(theme_layout)
 
         # Separateur
@@ -128,7 +129,7 @@ class SettingsView(QWidget):
         """Crée le groupe Téléchargement."""
         group = QGroupBox("Telechargement")
         group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; border: none; padding-top: 12px; margin-top: 16px; } QGroupBox::title { subcontrol-origin: margin; left: 0px; padding: 0 4px; color: #38bdf8; }"  )
-        
+
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(12)
 
@@ -177,7 +178,7 @@ class SettingsView(QWidget):
         self.vol_spin.setValue(config_manager.get("chapters_per_volume", 5))
         self.vol_spin.setFixedWidth(60)
         chaps_vol_layout.addWidget(self.vol_spin)
-        
+
         vol_unit = QLabel("chapitres")
         vol_unit.setStyleSheet("color: #94a3b8;")
         chaps_vol_layout.addWidget(vol_unit)
@@ -189,7 +190,7 @@ class SettingsView(QWidget):
         """Crée le groupe Dossiers."""
         group = QGroupBox("Dossiers")
         group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; border: none; padding-top: 12px; margin-top: 16px; } QGroupBox::title { subcontrol-origin: margin; left: 0px; padding: 0 4px; color: #38bdf8; }"  )
-        
+
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(12)
 
@@ -209,7 +210,7 @@ class SettingsView(QWidget):
         browse_btn.setObjectName("SecondaryButton")
         browse_btn.clicked.connect(self.browse_folder)
         dir_layout.addWidget(browse_btn)
-        
+
         group_layout.addLayout(dir_layout)
 
         # Auto open folder
@@ -230,7 +231,7 @@ class SettingsView(QWidget):
         """Crée le groupe Sources avec les 6 sources configurables."""
         group = QGroupBox("Sources de Scraping (6 Domaines)")
         group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; border: none; padding-top: 12px; margin-top: 16px; } QGroupBox::title { subcontrol-origin: margin; left: 0px; padding: 0 4px; color: #38bdf8; }"  )
-        
+
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(10)
 
@@ -271,7 +272,7 @@ class SettingsView(QWidget):
         from config import APP_VERSION
         group = QGroupBox("Mises à Jour & Version")
         group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; border: none; padding-top: 12px; margin-top: 16px; } QGroupBox::title { subcontrol-origin: margin; left: 0px; padding: 0 4px; color: #38bdf8; }")
-        
+
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(12)
 
@@ -305,6 +306,22 @@ class SettingsView(QWidget):
         layout.addWidget(group)
 
     def test_all_sources_ping(self):
+        if hasattr(self, "ping_worker") and self.ping_worker.isRunning():
+            return
+        self.log_signal.emit("INFO", "Vérification des sources en cours…")
+        self.ping_worker = FetchWorker(self._ping_sources)
+        self.ping_worker.result.connect(self._show_ping_results)
+        self.ping_worker.error.connect(self._show_ping_error)
+        self.ping_worker.start()
+
+    def _show_ping_results(self, results):
+        QMessageBox.information(self, "État des sources", "\n".join(results))
+
+    def _show_ping_error(self, message):
+        QMessageBox.warning(self, "État des sources", message)
+
+    @staticmethod
+    def _ping_sources():
         """Teste la latence HTTP et le statut des 6 sources de scraping."""
         import time
         import httpx
@@ -318,7 +335,7 @@ class SettingsView(QWidget):
                 scr = ScraperFactory.get_scraper(name)
                 url = scr.base_url
                 t0 = time.time()
-                with httpx.Client(timeout=6.0, follow_redirects=True, verify=False) as c:
+                with httpx.Client(timeout=6.0, follow_redirects=True) as c:
                     r = c.get(url)
                 dt = (time.time() - t0) * 1000
                 if r.status_code < 400:
@@ -328,8 +345,7 @@ class SettingsView(QWidget):
             except Exception as e:
                 results.append(f"🔴 {name}: Échec ({e})")
 
-        msg = "Résultats des pings de latence des 6 sources :\n\n" + "\n".join(results)
-        QMessageBox.information(self, "Latence des Sources", msg)
+        return results
 
 
     def on_theme_selected(self, theme_name: str):
@@ -345,32 +361,29 @@ class SettingsView(QWidget):
             self.dir_input.setText(folder)
 
     def save_settings(self):
-        """Sauvegarde tous les parametres."""
-        # Apparence
-        theme_name = self.theme_combo.currentText()
-        theme_value = "dark" if theme_name == "Sombre" else "light"
-        config_manager.set("theme", theme_value)
-        theme_manager.set_theme(theme_value)
-        
-        config_manager.set("export_format", self.format_combo.currentText())
-        
-        # Telechargement
-        config_manager.set("max_concurrent_threads", self.threads_spin.value())
-        config_manager.set("group_by_volume", self.group_vol_cb.isChecked())
-        config_manager.set("chapters_per_volume", self.vol_spin.value())
-        
-        # Dossiers
-        config_manager.set("download_dir", self.dir_input.text().strip())
-        config_manager.set("auto_open_folder", self.auto_open_cb.isChecked())
-        
-        # 6 Sources
-        config_manager.set("anime_sama_domain", self.as_domain_input.text().strip())
-        config_manager.set("japscan_domain", self.js_domain_input.text().strip())
-        config_manager.set("crunchyscan_domain", self.cs_domain_input.text().strip())
-        config_manager.set("unekoscans_domain", self.un_domain_input.text().strip())
-        config_manager.set("scan_vf_domain", self.sv_domain_input.text().strip())
-        config_manager.set("mangadex_domain", self.md_domain_input.text().strip())
-
-        self.log_signal.emit("SUCCESS", "Paramètres des 6 sources sauvegardés avec succès.")
-        QMessageBox.information(self, "Paramètres enregistrés", "Vos paramètres et les domaines des 6 sources ont été enregistrés.")
-
+        theme_value = "dark" if self.theme_combo.currentText() == "Sombre" else "light"
+        values = {
+            "theme": theme_value,
+            "export_format": self.format_combo.currentText(),
+            "max_concurrent_threads": self.threads_spin.value(),
+            "group_by_volume": self.group_vol_cb.isChecked(),
+            "chapters_per_volume": self.vol_spin.value(),
+            "download_dir": self.dir_input.text().strip(),
+            "auto_open_folder": self.auto_open_cb.isChecked(),
+            "anime_sama_domain": self.as_domain_input.text().strip(),
+            "japscan_domain": self.js_domain_input.text().strip(),
+            "crunchyscan_domain": self.cs_domain_input.text().strip(),
+            "unekoscans_domain": self.un_domain_input.text().strip(),
+            "scan_vf_domain": self.sv_domain_input.text().strip(),
+            "mangadex_domain": self.md_domain_input.text().strip(),
+        }
+        try:
+            config_manager.update(values)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Paramètres non enregistrés", str(error))
+            return
+        from scrapers.factory import ScraperFactory
+        ScraperFactory.reload()
+        self.theme_changed.emit(theme_value)
+        self.log_signal.emit("SUCCESS", "Paramètres enregistrés.")
+        QMessageBox.information(self, "Paramètres enregistrés", "Vos préférences ont été enregistrées.")

@@ -1,3 +1,5 @@
+
+from ui.tasks import ManagedThread
 """
 Module de recherche de mise à jour & affichage des notes de version (Patch Notes)
 depuis le dépôt GitHub officiel dorianskyfr/MangasDdl.
@@ -6,29 +8,25 @@ import re
 import httpx
 from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTextBrowser, QFrame, QWidget
 )
 from PySide6.QtGui import QFont, QDesktopServices
 from PySide6.QtCore import QUrl
 
-APP_VERSION = "0.1"
+from app_info import APP_VERSION
 GITHUB_REPO = "dorianskyfr/MangasDdl"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 ALL_RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 
 
-def _parse_version(v_str: str) -> tuple:
+def _parse_version(v_str: str):
     """Transforme 'v0.1' ou '0.1.2' en tuple d'entiers pour comparaison (0, 1, 2)."""
-    clean = re.sub(r'^[vV]', '', v_str.strip())
-    parts = []
-    for p in clean.split('.'):
-        if p.isdigit():
-            parts.append(int(p))
-        else:
-            num = re.findall(r'\d+', p)
-            parts.append(int(num[0]) if num else 0)
-    return tuple(parts)
+    from packaging.version import Version, InvalidVersion
+    try:
+        return Version(v_str.strip().lstrip("vV"))
+    except InvalidVersion:
+        return Version("0")
 
 
 def markdown_to_html(md: str) -> str:
@@ -66,7 +64,7 @@ def markdown_to_html(md: str) -> str:
     """
 
 
-class UpdateCheckWorker(QThread):
+class UpdateCheckWorker(ManagedThread):
     """Vérifie les mises à jour en arrière-plan au démarrage."""
     update_result = Signal(bool, str, str, str, str)  # is_newer, latest_ver, release_title, html_notes, download_url
     check_failed = Signal(str)
@@ -85,7 +83,7 @@ class UpdateCheckWorker(QThread):
                 r = client.get(RELEASES_API_URL)
                 if r.status_code == 200:
                     data = r.json()
-                    tag_name = data.get("tag_name", "0.1")
+                    tag_name = data.get("tag_name", APP_VERSION)
                     clean_tag = re.sub(r'^[vV]', '', tag_name)
                     release_title = data.get("name") or f"Version {clean_tag}"
                     body = data.get("body", "")
@@ -101,8 +99,8 @@ class UpdateCheckWorker(QThread):
                     # Pas encore de release GitHub en ligne
                     if self.manual:
                         self.update_result.emit(
-                            False, APP_VERSION, f"MangasDdl v{APP_VERSION} (À jour)", 
-                            "<p>Vous utilisez la dernière version disponible (v0.1) !</p>", 
+                            False, APP_VERSION, f"MangasDdl v{APP_VERSION} (À jour)",
+                            f"<p>Version installée : {APP_VERSION}. Aucune publication GitHub disponible.</p>",
                             f"https://github.com/{GITHUB_REPO}"
                         )
                 else:

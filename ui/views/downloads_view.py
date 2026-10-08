@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QDesktopServices, QColor, QBrush
 
 from models import DownloadJob, DownloadStatus
+from config import config_manager
 from downloader.worker import DownloadTask
 
 
@@ -29,6 +30,8 @@ class DownloadsView(QWidget):
         self.jobs: dict[str, DownloadJob] = {}
         # Mapping job_id -> numéro de ligne du tableau (stable)
         self._row_map: dict[str, int] = {}
+        self._pending = []
+        self._stopping = False
         self.init_ui()
 
     def init_ui(self):
@@ -84,13 +87,16 @@ class DownloadsView(QWidget):
         self.table.setColumnWidth(6, 270)
         self.table.setRowHeight(0, 40)
         layout.addWidget(self.table)
+        self._update_title()
 
     # ─────────────────────────────────────────────────────
     # Ajout de tâches
     # ─────────────────────────────────────────────────────
     def add_jobs(self, jobs: list):
         for job in jobs:
-            if job.job_id in self.jobs:
+            key = (job.manga_title, job.chapter_number, job.export_format, job.volume_number)
+            duplicate = any((j.manga_title, j.chapter_number, j.export_format, j.volume_number) == key and j.status in (DownloadStatus.PENDING, DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED) for j in self.jobs.values())
+            if duplicate or job.job_id in self.jobs:
                 continue
 
             self.jobs[job.job_id] = job
@@ -100,7 +106,9 @@ class DownloadsView(QWidget):
             # Mémoriser le row index par job_id (stable)
             self._row_map[job.job_id] = row
 
-            self.table.setItem(row, 0, QTableWidgetItem(job.manga_title))
+            title_item = QTableWidgetItem(job.manga_title)
+            title_item.setData(Qt.UserRole, job.job_id)
+            self.table.setItem(row, 0, title_item)
             chap_lbl = f"Tome {job.volume_number:02d} ({job.chapter_number})" if job.is_volume else f"Chap. {job.chapter_number}"
             self.table.setItem(row, 1, QTableWidgetItem(chap_lbl))
             self.table.setItem(row, 2, QTableWidgetItem(job.source))
@@ -141,16 +149,29 @@ class DownloadsView(QWidget):
 
             self.table.setCellWidget(row, 6, action_w)
 
-            # Lancer le worker
-            task = DownloadTask(job)
-            task.signals.job_started.connect(self.on_job_started)
-            task.signals.job_progress.connect(self.on_job_progress)
-            task.signals.job_completed.connect(self.on_job_completed)
-            task.signals.job_failed.connect(self.on_job_failed)
-            task.signals.log_message.connect(self.log_signal.emit)
-            self.download_tasks[job.job_id] = task
-            task.start()
+            self._pending.append(job.job_id)
 
+        self._pump_queue()
+
+    def _pump_queue(self):
+        if self._stopping:
+            return
+        active = sum(task.isRunning() for task in self.download_tasks.values())
+        while self._pending and active < 2:
+            job_id = self._pending.pop(0)
+            job = self.jobs.get(job_id)
+            if not job or job.status != DownloadStatus.PENDING:
+                continue
+            task = DownloadTask(job)
+            task.job_started.connect(self.on_job_started)
+            task.job_progress.connect(self.on_job_progress)
+            task.job_completed.connect(self.on_job_completed)
+            task.job_failed.connect(self.on_job_failed)
+            task.log_message.connect(self.log_signal.emit)
+            task.finished.connect(self._pump_queue)
+            self.download_tasks[job_id] = task
+            task.start()
+            active += 1
         self._update_title()
 
     # ─────────────────────────────────────────────────────
@@ -181,7 +202,8 @@ class DownloadsView(QWidget):
         spd_item = self.table.item(row, 4)
         if spd_item:
             spd_item.setText(speed)
-        self._set_status(row, f"{downloaded}/{total} pages", "#38bdf8")
+        if self.jobs[job_id].status == DownloadStatus.DOWNLOADING:
+            self._set_status(row, f"{downloaded}/{total} pages", "#38bdf8")
 
     def on_job_completed(self, job_id: str, final_path: str):
         job = self.jobs.get(job_id)
@@ -206,6 +228,8 @@ class DownloadsView(QWidget):
                 btns[1].setEnabled(False)
                 btns[2].setEnabled(True)
         self._update_title()
+        if config_manager.get("auto_open_folder", False):
+            self.open_job_folder(job_id)
 
     def on_job_failed(self, job_id: str, error: str):
         row = self._get_row(job_id)
@@ -213,7 +237,9 @@ class DownloadsView(QWidget):
             spd_item = self.table.item(row, 4)
             if spd_item:
                 spd_item.setText("—")
-            self._set_status(row, "❌ Échec", "#f87171")
+            cancelled = self.jobs[job_id].status == DownloadStatus.CANCELLED
+            self._set_status(row, "⏹ Annulé" if cancelled else "❌ Échec", "#fbbf24" if cancelled else "#f87171")
+            self.table.item(row, 5).setToolTip(error)
             action_w = self.table.cellWidget(row, 6)
             if action_w:
                 btns = action_w.findChildren(QPushButton)
@@ -230,6 +256,9 @@ class DownloadsView(QWidget):
         self._update_title()
 
     def retry_job(self, job_id: str):
+        previous = self.download_tasks.get(job_id)
+        if previous and previous.isRunning():
+            return
         job = self.jobs.get(job_id)
         if not job:
             return
@@ -251,14 +280,13 @@ class DownloadsView(QWidget):
                         btns[1].setEnabled(True)
                         btns[1].setText("⏸ Pause")
 
-        task = DownloadTask(job)
-        task.signals.job_started.connect(self.on_job_started)
-        task.signals.job_progress.connect(self.on_job_progress)
-        task.signals.job_completed.connect(self.on_job_completed)
-        task.signals.job_failed.connect(self.on_job_failed)
-        task.signals.log_message.connect(self.log_signal.emit)
-        self.download_tasks[job.job_id] = task
-        task.start()
+        job.status = DownloadStatus.PENDING
+        job.progress = 0
+        job.downloaded_pages = 0
+        job.error_message = None
+        self.table.cellWidget(row, 3).setValue(0)
+        self._pending.append(job_id)
+        self._pump_queue()
 
 
     # ─────────────────────────────────────────────────────
@@ -281,33 +309,37 @@ class DownloadsView(QWidget):
         pause_btn = btns[1]
         if pause_btn.text().startswith("⏸"):
             # Pause the download
-            if hasattr(task, '_is_paused'):
-                task._is_paused = True
+            task.pause()
             pause_btn.setText("▶ Reprendre")
             self._set_status(row, "⏸ En pause", "#fbbf24")
         else:
             # Resume
-            if hasattr(task, '_is_paused'):
-                task._is_paused = False
+            task.resume()
             pause_btn.setText("⏸ Pause")
             self._set_status(row, "⬇ Téléchargement…", "#38bdf8")
     def cancel_job(self, job_id: str):
         task = self.download_tasks.get(job_id)
         if task and task.isRunning():
             task.cancel()
-        row = self._get_row(job_id)
-        if row >= 0:
-            self._set_status(row, "⏹ Annulé", "#fbbf24")
+        job = self.jobs.get(job_id)
+        if job:
+            job.status = DownloadStatus.CANCELLED
+        if job_id in self._pending:
+            self._pending.remove(job_id)
+        self.on_job_failed(job_id, "Téléchargement annulé.")
 
     def cancel_all(self):
-        for task in self.download_tasks.values():
-            if task.isRunning():
-                task.cancel()
+        for job_id, job in list(self.jobs.items()):
+            if job.status in (DownloadStatus.PENDING, DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED):
+                self.cancel_job(job_id)
 
     def clear_completed(self):
         to_remove = []
         for job_id, row in sorted(self._row_map.items(), key=lambda x: x[1], reverse=True):
             status = self.table.item(row, 5)
+            task = self.download_tasks.get(job_id)
+            if task and task.isRunning():
+                continue
             if status and any(
                 kw in status.text() for kw in ("Terminé", "Échec", "Annulé")
             ):
@@ -319,25 +351,10 @@ class DownloadsView(QWidget):
             self.jobs.pop(job_id, None)
             self.download_tasks.pop(job_id, None)
 
-        # Reconstruire le mapping row après suppression
-        self._row_map = {}
-        for r in range(self.table.rowCount()):
-            chap_item = self.table.item(r, 1)
-            manga_item = self.table.item(r, 0)
-            if not chap_item or not manga_item:
-                continue
-            chap_text = chap_item.text()
-            manga_text = manga_item.text()
-            for jid, job in self.jobs.items():
-                if jid not in self._row_map:
-                    job_lbl = (
-                        f"Tome {job.volume_number:02d} ({job.chapter_number})"
-                        if job.is_volume
-                        else f"Chap. {job.chapter_number}"
-                    )
-                    if manga_text == job.manga_title and chap_text == job_lbl:
-                        self._row_map[jid] = r
-                        break
+        self._row_map = {
+            self.table.item(row, 0).data(Qt.UserRole): row
+            for row in range(self.table.rowCount())
+        }
 
         self._update_title()
 
@@ -353,7 +370,7 @@ class DownloadsView(QWidget):
             QMessageBox.warning(self, "Dossier introuvable", str(folder))
 
     def _update_title(self):
-        active = sum(1 for t in self.download_tasks.values() if t.isRunning())
+        active = sum(j.status in (DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED) for j in self.jobs.values())
         completed = sum(1 for jid in self.jobs if self.table.item(self._get_row(jid), 5) and '✅' in (self.table.item(self._get_row(jid), 5).text() or ''))
         failed = sum(1 for jid in self.jobs if self.table.item(self._get_row(jid), 5) and '❌' in (self.table.item(self._get_row(jid), 5).text() or ''))
         total = len(self.jobs)
@@ -370,4 +387,4 @@ class DownloadsView(QWidget):
             parts.append(f"✅ {completed} terminé(s)")
         if failed > 0:
             parts.append(f"❌ {failed} échoué(s)")
-        self.stats_bar.setText("  ·  ".join(parts) if parts else "")
+        self.stats_bar.setText("  ·  ".join(parts) if parts else "Votre file est vide. Sélectionnez des chapitres dans Explorer pour commencer.")
